@@ -48,6 +48,13 @@ export function resolveSessionTraceContext(
   return activeRunID ? resolveRunTraceContext(activeRunID, ctx) : baseCtx
 }
 
+/** Resolves the trace context for an outbound LLM request: the active message (llm) span when present, otherwise the run context. */
+export function resolveLlmRequestContext(sessionID: string, ctx: HandlerContext) {
+  const activeMessage = ctx.activeMessageSpans.get(sessionID)
+  if (activeMessage) return trace.setSpan(ctx.rootContext(), activeMessage.span)
+  return resolveSessionTraceContext(sessionID, ctx)
+}
+
 /**
  * Returns `true` if the metric name (without prefix) is not in the disabled set.
  * The `name` should be the suffix after the metric prefix, e.g. `"session.count"`.

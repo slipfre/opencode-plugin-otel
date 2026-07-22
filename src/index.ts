@@ -19,12 +19,12 @@ import { LEVELS, type Level, type HandlerContext, type RunDetails } from "./type
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
 import { setupOtel, createInstruments, forceFlushOtel } from "./otel.ts"
-import { remoteParentContext } from "./trace-context.ts"
+import { injectTraceContext, remoteParentContext } from "./trace-context.ts"
 import { handleSessionCreated, handleSessionIdle, handleSessionError, handleSessionStatus, handleRunStarted } from "./handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handlePermissionUpdated, handlePermissionReplied } from "./handlers/permission.ts"
 import { handleSessionDiff, handleCommandExecuted } from "./handlers/activity.ts"
-import { agentAttrs, getSessionAgentMeta, setBoundedMap } from "./util.ts"
+import { agentAttrs, getSessionAgentMeta, resolveLlmRequestContext, setBoundedMap } from "./util.ts"
 import type { SessionTotals } from "./types.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
 
@@ -226,6 +226,19 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         }
       }
     },
+
+    "chat.headers": safe("chat.headers", async (input, output) => {
+      if (!config.propagateTraceContext) return
+      const traceCtx = resolveLlmRequestContext(input.sessionID, ctx)
+      const before = output.headers["traceparent"]
+      injectTraceContext(traceCtx, output.headers)
+      if (output.headers["traceparent"] !== before) {
+        await log("debug", "otel: trace context injected into LLM request headers", {
+          sessionID: input.sessionID,
+          traceparent: output.headers["traceparent"],
+        })
+      }
+    }),
 
     "chat.message": safe("chat.message", async (input, output) => {
       const agent = input.agent ?? "unknown"

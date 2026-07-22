@@ -26,6 +26,7 @@ export type PluginConfig = {
   spanAttributeCountLimit: number
   traceparent: string | undefined
   tracestate: string | undefined
+  propagateTraceContext: boolean
   metricsTemporality: MetricsTemporality | undefined
   disabledMetrics: Set<string>
   disabledTraces: Set<string>
@@ -69,6 +70,7 @@ export type OtelPluginOptions = {
   spanAttributeCountLimit?: number
   traceparent?: string
   tracestate?: string
+  propagateTraceContext?: boolean
   metricsTemporality?: MetricsTemporality
   disabledMetrics?: string[]
   disabledTraces?: string[]
@@ -201,6 +203,8 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
     spanAttributes,
     traceparent,
     tracestate,
+    propagateTraceContext: pickBoolean(resolvedOptions.propagateTraceContext)
+      ?? !hasNonEmptyEnv("OPENCODE_DISABLE_TRACE_PROPAGATION"),
     metricsTemporality,
     disabledMetrics,
     disabledTraces,

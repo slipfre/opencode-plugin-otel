@@ -72,6 +72,7 @@ describe("loadConfig", () => {
     "OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT",
     "OPENCODE_TRACEPARENT",
     "OPENCODE_TRACESTATE",
+    "OPENCODE_DISABLE_TRACE_PROPAGATION",
     "OPENCODE_OTLP_METRICS_TEMPORALITY",
     "OPENCODE_DISABLE_METRICS",
     "OPENCODE_DISABLE_LOGS",
@@ -97,6 +98,24 @@ describe("loadConfig", () => {
   test("enabled when OPENCODE_ENABLE_TELEMETRY is set", () => {
     process.env["OPENCODE_ENABLE_TELEMETRY"] = "1"
     expect(loadConfig().enabled).toBe(true)
+  })
+
+  test("propagateTraceContext defaults to true", () => {
+    expect(loadConfig().propagateTraceContext).toBe(true)
+  })
+
+  test("propagateTraceContext is false when OPENCODE_DISABLE_TRACE_PROPAGATION is set", () => {
+    process.env["OPENCODE_DISABLE_TRACE_PROPAGATION"] = "1"
+    expect(loadConfig().propagateTraceContext).toBe(false)
+  })
+
+  test("option propagateTraceContext:false disables propagation", () => {
+    expect(loadConfig({ propagateTraceContext: false }).propagateTraceContext).toBe(false)
+  })
+
+  test("option propagateTraceContext:true overrides disable env var", () => {
+    process.env["OPENCODE_DISABLE_TRACE_PROPAGATION"] = "1"
+    expect(loadConfig({ propagateTraceContext: true }).propagateTraceContext).toBe(true)
   })
 
   test("logsEnabled is false when OPENCODE_DISABLE_LOGS is set", () => {

@@ -108,6 +108,7 @@ The environment variables (set them in your shell profile — `~/.zshrc`, `~/.ba
 | `OPENCODE_OTLP_METRICS_TEMPORALITY` | *(unset)* | Metrics aggregation temporality: `delta`, `cumulative`, or `lowmemory`. Required for Datadog (`delta`). Copied to `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`. |
 | `OPENCODE_TRACEPARENT` | *(unset)* | W3C [`traceparent`](https://www.w3.org/TR/trace-context/#traceparent-header) string. When set, all spans are parented under this remote context so opencode traces nest inside a caller's trace (e.g. a CI job). Invalid values are logged and ignored. Note: with the default `ParentBased` sampler, a value with the sampled flag off (`...-00`) suppresses all trace export. |
 | `OPENCODE_TRACESTATE` | *(unset)* | W3C [`tracestate`](https://www.w3.org/TR/trace-context/#tracestate-header) string, parsed alongside `OPENCODE_TRACEPARENT` and attached to the remote parent context. Ignored unless a valid `OPENCODE_TRACEPARENT` is also set. |
+| `OPENCODE_DISABLE_TRACE_PROPAGATION` | *(unset)* | Set to any non-empty value to stop injecting W3C `traceparent`/`tracestate` headers into outbound LLM requests. By default the plugin injects the current `llm` span context (falling back to the run span) via opencode's `chat.headers` hook, so OTel-instrumented inference backends (e.g. vLLM with `--otlp-traces-endpoint`) nest their spans inside the opencode trace. |
 
 ### Plugin options (opencode.json)
 
@@ -147,6 +148,7 @@ Option keys mirror the resolved config and map to the environment variables:
 | `spanAttributeCountLimit` | `OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT` |
 | `traceparent` | `OPENCODE_TRACEPARENT` |
 | `tracestate` | `OPENCODE_TRACESTATE` |
+| `propagateTraceContext` | `OPENCODE_DISABLE_TRACE_PROPAGATION` (inverted) |
 | `metricsTemporality` | `OPENCODE_OTLP_METRICS_TEMPORALITY` |
 | `disabledMetrics` | `OPENCODE_DISABLE_METRICS` (array, not a comma string) |
 | `disabledTraces` | `OPENCODE_DISABLE_TRACES` (array, not a comma string) |

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { context, ROOT_CONTEXT, trace, TraceFlags } from "@opentelemetry/api"
-import { remoteParentContext } from "../src/trace-context.ts"
+import { injectTraceContext, remoteParentContext } from "../src/trace-context.ts"
 
 describe("remoteParentContext", () => {
   test("returns undefined when traceparent is absent", () => {
@@ -51,5 +51,47 @@ describe("remoteParentContext", () => {
   test("preserves parsed trace flags", () => {
     const ctx = remoteParentContext("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-03", undefined)
     expect(ctx ? trace.getSpanContext(ctx)?.traceFlags : undefined).toBe(3)
+  })
+})
+
+describe("injectTraceContext", () => {
+  test("writes a traceparent header for a sampled span context", () => {
+    const ctx = trace.setSpanContext(ROOT_CONTEXT, {
+      traceId: "0af7651916cd43dd8448eb211c80319c",
+      spanId: "b7ad6b7169203331",
+      traceFlags: TraceFlags.SAMPLED,
+    })
+    const headers: Record<string, string> = {}
+    injectTraceContext(ctx, headers)
+    expect(headers["traceparent"]).toBe("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+  })
+
+  test("round-trips traceparent and tracestate through extract and inject", () => {
+    const ctx = remoteParentContext(
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+      "vendor=value",
+    )
+    const headers: Record<string, string> = {}
+    injectTraceContext(ctx!, headers)
+    expect(headers["traceparent"]).toBe("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+    expect(headers["tracestate"]).toBe("vendor=value")
+  })
+
+  test("leaves headers untouched without a span context", () => {
+    const headers: Record<string, string> = { authorization: "Bearer x" }
+    injectTraceContext(ROOT_CONTEXT, headers)
+    expect(headers).toEqual({ authorization: "Bearer x" })
+  })
+
+  test("preserves existing headers when injecting", () => {
+    const ctx = trace.setSpanContext(ROOT_CONTEXT, {
+      traceId: "0af7651916cd43dd8448eb211c80319c",
+      spanId: "b7ad6b7169203331",
+      traceFlags: TraceFlags.SAMPLED,
+    })
+    const headers: Record<string, string> = { "x-custom": "keep" }
+    injectTraceContext(ctx, headers)
+    expect(headers["x-custom"]).toBe("keep")
+    expect(headers["traceparent"]).toBeDefined()
   })
 })

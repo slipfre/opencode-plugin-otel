@@ -1,6 +1,9 @@
 import { describe, test, expect } from "bun:test"
-import { errorSummary, setBoundedMap, isMetricEnabled, isTraceEnabled } from "../src/util.ts"
+import { trace } from "@opentelemetry/api"
+import type { Span } from "@opentelemetry/api"
+import { errorSummary, setBoundedMap, isMetricEnabled, isTraceEnabled, resolveLlmRequestContext } from "../src/util.ts"
 import { MAX_PENDING } from "../src/types.ts"
+import { makeCtx } from "./helpers.ts"
 
 describe("errorSummary", () => {
   test("returns 'unknown' for undefined", () => {
@@ -124,5 +127,33 @@ describe("isTraceEnabled", () => {
 
   test("unknown trace names in disabled set do not affect known types", () => {
     expect(isTraceEnabled("llm", { disabledTraces: new Set(["does_not_exist"]) })).toBe(true)
+  })
+})
+
+describe("resolveLlmRequestContext", () => {
+  test("prefers the active message span", () => {
+    const { ctx, tracer } = makeCtx()
+    const runSpan = tracer.startSpan("opencode.run") as unknown as Span
+    ctx.runSpans.set("run-1", runSpan)
+    ctx.activeRuns.set("session-1", "run-1")
+    const msgSpan = tracer.startSpan("opencode.llm") as unknown as Span
+    ctx.activeMessageSpans.set("session-1", { messageID: "msg-1", span: msgSpan })
+    const resolved = resolveLlmRequestContext("session-1", ctx)
+    expect(trace.getSpanContext(resolved)?.spanId).toBe(msgSpan.spanContext().spanId)
+  })
+
+  test("falls back to the run span when no active message span exists", () => {
+    const { ctx, tracer } = makeCtx()
+    const runSpan = tracer.startSpan("opencode.run") as unknown as Span
+    ctx.runSpans.set("run-1", runSpan)
+    ctx.activeRuns.set("session-1", "run-1")
+    const resolved = resolveLlmRequestContext("session-1", ctx)
+    expect(trace.getSpanContext(resolved)?.spanId).toBe(runSpan.spanContext().spanId)
+  })
+
+  test("falls back to the root context when nothing is tracked", () => {
+    const { ctx } = makeCtx()
+    const resolved = resolveLlmRequestContext("session-1", ctx)
+    expect(trace.getSpanContext(resolved)).toBeUndefined()
   })
 })
