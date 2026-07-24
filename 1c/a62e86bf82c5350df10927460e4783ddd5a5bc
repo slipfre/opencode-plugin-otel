@@ -1,0 +1,97 @@
+spec/features/span-output-and-agent-lifecycle.md
+  s_2cef447f040dd1::t_ba9afd11b66d17 1-90
+src/types.ts
+  s_2cef447f040dd1::t_517f88345a2e35 103
+  s_2cef447f040dd1::t_67d0d48a32205a 104
+src/config.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 11,26,69,195-196
+src/handlers/session.ts
+  s_2cef447f040dd1::t_3dd69fe8039b9b 9-10,51-52,74-75
+  s_2cef447f040dd1::t_07063c8f42df0a 159
+  s_2cef447f040dd1::t_f6286f1488e465 160-162
+README.md
+  s_2cef447f040dd1::t_c515e07be0b3ec 107,147
+src/handlers/message.ts
+  s_2cef447f040dd1::t_4d4a222c6bccb5 72-79,450,456-462
+  s_2cef447f040dd1::t_c727e65f26419b 21-22,157-158,485-486
+  s_2cef447f040dd1::t_07063c8f42df0a 173-175,495
+  s_2cef447f040dd1::t_c515e07be0b3ec 479-480
+  s_2cef447f040dd1::t_de19b16a60f29f 130-138,172
+  s_2cef447f040dd1::t_59309b2ea5698a 176
+  s_2cef447f040dd1::t_38aa2fe46862c4 141,153
+spec/features/span-attribute-capacity.md
+  s_2cef447f040dd1::t_ba9afd11b66d17 1-58
+src/index.ts
+  s_2cef447f040dd1::t_4d4a222c6bccb5 348
+  s_2cef447f040dd1::t_c515e07be0b3ec 60,90
+  s_2cef447f040dd1::t_07063c8f42df0a 30,121,165,169-170,206-209
+  s_2cef447f040dd1::t_40ee66afc9928c 122
+  s_2cef447f040dd1::t_90fa2ef9f03282 166
+package.json
+  s_2cef447f040dd1::t_07063c8f42df0a 26
+tests/otel.test.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 125-134
+src/otel.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 81,141
+tests/helpers.ts
+  s_2cef447f040dd1::t_07063c8f42df0a 245
+  s_2cef447f040dd1::t_39ffd5daa15d17 246
+tests/ai-telemetry.test.ts
+  s_2cef447f040dd1::t_620eacfb8769e4 201,204-205,219,222-223
+  s_2cef447f040dd1::t_678fbe2e5cc658 254-274
+  s_2cef447f040dd1::t_ae1ff21ea9c0d6 312-324
+  s_2cef447f040dd1::t_99eeb113f656a9 202-203,220-221
+  s_2cef447f040dd1::t_1aec4729ce988a 63,93
+  s_2cef447f040dd1::t_517f88345a2e35 1-6,8,14-16,21-62,64-92,94-135,137-163,165-176,179-180,206-207,227-231,233-242,249-253,276-285,288-289,291-311,325
+  s_2cef447f040dd1::t_942dd8776eef7c 7,9-13,17-20,164,177-178,181-200,208-218,224-226,232,243-248
+  s_2cef447f040dd1::t_84098700acfd20 136
+  s_2cef447f040dd1::t_18be68e4532d10 275
+  s_2cef447f040dd1::t_3e4992f59e72ad 286-287
+  s_2cef447f040dd1::t_89625eaf5994a4 290
+tests/config.test.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 72,94,143-152,349,399-402
+  s_2cef447f040dd1::t_6d74ce8a8f6fec 403
+spec/features/README.md
+  s_2cef447f040dd1::t_ba9afd11b66d17 1-12
+src/ai-telemetry.ts
+  s_2cef447f040dd1::t_c727e65f26419b 1,5,9,11-18,22-25,43-57,66,93-96,101,105-106,109-121,125-126,129-134,137-163,174,190-216,218-228,240-241,250,252-273,275-281,287,289,291-292,300,302,304
+  s_2cef447f040dd1::t_3dd69fe8039b9b 97-100,102-104,122-124
+  s_2cef447f040dd1::t_620eacfb8769e4 229-230,237,293,305
+  s_2cef447f040dd1::t_99eeb113f656a9 231,235
+  s_2cef447f040dd1::t_84098700acfd20 232-234,236,238-239
+  s_2cef447f040dd1::t_678fbe2e5cc658 166-173,182-187
+  s_2cef447f040dd1::t_517f88345a2e35 28,284,297
+  s_2cef447f040dd1::t_07063c8f42df0a 2-4,6-8,10,19-21,26,29-42,58-65,67-82,88-91,107-108,127-128,135-136,164-165,175-181,188-189,242-249,251,274,282-283,285-286,288,290,294-296,298-299,301,303,306,308-316,320-321,325-326,330-347
+  s_2cef447f040dd1::t_ae1ff21ea9c0d6 83-87,317-319,322-324,327-329
+  s_2cef447f040dd1::t_4282b948919d9c 217
+  s_2cef447f040dd1::t_a870c45838d44f 27
+  s_2cef447f040dd1::t_3150d3957ab73c 92
+  s_2cef447f040dd1::t_8ff120eab5eb0c 307
+spec/features/ai-sdk-llm-payload-capture.md
+  s_2cef447f040dd1::t_ba9afd11b66d17 1-170
+tests/handlers/spans.test.ts
+  s_2cef447f040dd1::t_4d4a222c6bccb5 60,76,456-462
+  s_2cef447f040dd1::t_3281792f1f6260 276-291,463
+  s_2cef447f040dd1::t_de19b16a60f29f 13,15-16,107-113,268-275
+  s_2cef447f040dd1::t_3f070468fed38a 464
+spec/features/llm-header-capture.md
+  s_2cef447f040dd1::t_ba9afd11b66d17 1-70
+bun.lock
+  s_2cef447f040dd1::t_1e6a83a4a87953 27,39-44,181-182,187-188,253-254,305-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "1ca62e86bf82c5350df10927460e4783ddd5a5bc",
+  "prompts": {},
+  "sessions": {
+    "s_2cef447f040dd1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f542b-31ec-72d1-ab82-c9faa7b91b44",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    }
+  }
+}
