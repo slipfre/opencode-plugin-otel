@@ -54,6 +54,15 @@ type SubtaskPart = {
   agent: string
 }
 
+function recordLlmOutputEnd(toolPart: ToolPart, outputEndTime: number, ctx: HandlerContext) {
+  const active = ctx.activeMessageSpans.get(toolPart.sessionID)
+  if (!active || active.messageID !== toolPart.messageID) return
+  setBoundedMap(ctx.activeMessageSpans, toolPart.sessionID, {
+    ...active,
+    outputEndTime: Math.max(active.outputEndTime ?? 0, outputEndTime),
+  })
+}
+
 /**
  * Handles a completed assistant message: increments token and cost counters, emits
  * either an `api_request` or `api_error` log event, and ends the LLM span for this message.
@@ -68,7 +77,16 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   if (!assistant.time.completed) return
 
   const { sessionID, modelID, providerID } = assistant
-  const duration = assistant.time.completed - assistant.time.created
+  const msgKey = `${sessionID}:${assistant.id}`
+  const activeMessage = ctx.activeMessageSpans.get(sessionID)
+  const recordedOutputEndTime = activeMessage?.messageID === assistant.id
+    ? activeMessage.outputEndTime ?? assistant.time.completed
+    : assistant.time.completed
+  const outputEndTime = Math.min(
+    assistant.time.completed,
+    Math.max(assistant.time.created, recordedOutputEndTime),
+  )
+  const duration = outputEndTime - assistant.time.created
   const sessionAgent = getSessionAgentMeta(sessionID, ctx)
   const messageAgent = (assistant as AssistantMessage & { agent?: string }).agent ?? assistant.mode
   const agentName = messageAgent || sessionAgent.agentName
@@ -127,7 +145,6 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     cost_usd: assistant.cost,
   })
 
-  const msgKey = `${sessionID}:${assistant.id}`
   const outputText = ctx.messageOutputs.get(msgKey)
   if (outputText !== undefined) {
     const outputAttrs = {
@@ -167,7 +184,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     } else {
       msgSpan.setStatus({ code: SpanStatusCode.OK })
     }
-    msgSpan.end(assistant.time.completed)
+    msgSpan.end(outputEndTime)
     ctx.messageSpans.delete(msgKey)
   }
   const requestKey = `${sessionID}:${assistant.parentID}`
@@ -301,6 +318,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     const key = `${toolPart.sessionID}:${toolPart.callID}`
 
     if (toolPart.state.status === "running") {
+      recordLlmOutputEnd(toolPart, toolPart.state.time.start, ctx)
       const { agentName, agentType } = getSessionAgentMeta(toolPart.sessionID, ctx)
       const toolSpan = isTraceEnabled("tool", ctx)
         ? (() => {

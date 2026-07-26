@@ -432,6 +432,21 @@ describe("message (LLM) spans", () => {
     expect(ctx.llmRequestContexts.has("ses_1:user_1")).toBe(false)
   })
 
+  test("llm span ends at the final tool handoff instead of tool completion", () => {
+    const { ctx, tracer } = makeCtx()
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude-3-5-sonnet", "anthropic", 1000, ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", { callID: "call_1", startMs: 1400 }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", { callID: "call_2", startMs: 1600 }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("completed", { callID: "call_1", startMs: 1400, endMs: 3000 }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("completed", { callID: "call_2", startMs: 1600, endMs: 3500 }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({ time: { created: 1000, completed: 3600 } }), ctx)
+
+    const llmSpan = tracer.spans.find((span) => span.name === "opencode.llm")!
+    expect(llmSpan.endTime).toBe(1600)
+    expect(llmSpan.attributes.duration_ms).toBe(600)
+    expect(tracer.spans.filter((span) => span.name === "opencode.tool.bash").map((span) => span.endTime)).toEqual([3000, 3500])
+  })
+
   test("an older completion does not remove a newer request context", () => {
     const { ctx } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
