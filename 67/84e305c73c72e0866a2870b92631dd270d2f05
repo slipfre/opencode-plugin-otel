@@ -1,0 +1,38 @@
+tests/config.test.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 72,95,144-153,359,410-413
+  s_4753775aade975::t_b13e5788fc2f35 414
+tests/otel.test.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 125-134
+src/config.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 11,26,70,204-205
+src/index.ts
+  s_4753775aade975::t_de1009d45f96b0 59,89
+src/otel.ts
+  s_2cef447f040dd1::t_c515e07be0b3ec 81,141
+README.md
+  s_2cef447f040dd1::t_c515e07be0b3ec 108,149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "6784e305c73c72e0866a2870b92631dd270d2f05",
+  "prompts": {},
+  "sessions": {
+    "s_2cef447f040dd1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f542b-31ec-72d1-ab82-c9faa7b91b44",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    },
+    "s_4753775aade975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d56-e314-7141-95d8-e94a73d3499f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    }
+  }
+}
