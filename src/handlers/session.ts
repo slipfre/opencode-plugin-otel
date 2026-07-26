@@ -6,6 +6,8 @@ import {
   INPUT_MIME_TYPE,
   INPUT_VALUE,
   LLM_INPUT_MESSAGES,
+  MESSAGE_CONTENT,
+  MESSAGE_ROLE,
   MimeType,
   OpenInferenceSpanKind,
   SemanticConventions,
@@ -50,7 +52,8 @@ export function handleRunStarted(
         ? {
             [INPUT_VALUE]: promptText,
             [INPUT_MIME_TYPE]: MimeType.TEXT,
-            [LLM_INPUT_MESSAGES]: JSON.stringify([{ role: "user", content: promptText }]),
+            [`${LLM_INPUT_MESSAGES}.0.${MESSAGE_ROLE}`]: "user",
+            [`${LLM_INPUT_MESSAGES}.0.${MESSAGE_CONTENT}`]: promptText,
           }
         : {}),
       model,
@@ -73,7 +76,8 @@ export function handleRunStarted(
           ? {
               [INPUT_VALUE]: promptText,
               [INPUT_MIME_TYPE]: MimeType.TEXT,
-              [LLM_INPUT_MESSAGES]: JSON.stringify([{ role: "user", content: promptText }]),
+              [`${LLM_INPUT_MESSAGES}.0.${MESSAGE_ROLE}`]: "user",
+              [`${LLM_INPUT_MESSAGES}.0.${MESSAGE_CONTENT}`]: promptText,
             }
           : {}),
         model,
@@ -141,6 +145,10 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
   }
   for (const key of ctx.llmRequestContexts.keys()) {
     if (key.startsWith(msgPrefix)) ctx.llmRequestContexts.delete(key)
+  }
+  ctx.activeMessageSpans.delete(sessionID)
+  for (const key of ctx.llmTelemetryOutputs.keys()) {
+    if (key.startsWith(msgPrefix)) ctx.llmTelemetryOutputs.delete(key)
   }
 }
 

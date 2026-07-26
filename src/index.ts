@@ -115,6 +115,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const messageSpans = new Map()
   const messageOutputs = new Map()
   const llmRequestContexts = new Map()
+  const activeMessageSpans = new Map()
+  const llmTelemetryOutputs = new Map()
   const { disabledMetrics, disabledTraces } = config
   const commonAttrs = {
     ...parseAttributePairs(config.spanAttributes),
@@ -158,6 +160,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     messageOutputs,
     llmRequestContexts,
     tracePropagationProviders: config.tracePropagationProviders,
+    activeMessageSpans,
+    llmTelemetryOutputs,
   }
 
   let shuttingDown = false

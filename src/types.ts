@@ -110,4 +110,6 @@ export type HandlerContext = {
   messageOutputs: Map<string, string>
   llmRequestContexts: Map<string, LlmRequestContext[]>
   tracePropagationProviders: Set<string>
+  activeMessageSpans: Map<string, { messageID: string; span: Span }>
+  llmTelemetryOutputs: Map<string, true>
 }
