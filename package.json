@@ -23,6 +23,7 @@
     "@opentelemetry/sdk-metrics": "^2.6.0",
     "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
+    "ai": "6.0.168",
     "typescript": "^5.9.3"
   },
   "description": "OpenTelemetry telemetry plugin for opencode CLI",

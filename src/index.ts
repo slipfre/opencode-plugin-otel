@@ -27,6 +27,7 @@ import { handleSessionDiff, handleCommandExecuted } from "./handlers/activity.ts
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
 import { agentAttrs, getSessionAgentMeta, setBoundedMap } from "./util.ts"
 import type { SessionTotals } from "./types.ts"
+import { registerAiTelemetry } from "./ai-telemetry.ts"
 
 const PLUGIN_VERSION: string = (pkg as { version?: string }).version ?? "unknown"
 
@@ -166,6 +167,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     llmTelemetryOutputs,
   }
 
+  const unregisterAiTelemetry = registerAiTelemetry(ctx)
+
   let shuttingDown = false
 
   async function flushTelemetry(reason: string) {
@@ -201,6 +204,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     }
 
   return {
+    dispose: async () => {
+      unregisterAiTelemetry()
+    },
+
     config: async (cfg) => {
       if (cfg.logLevel) {
         const next = resolveLogLevel(cfg.logLevel, minLevel)
