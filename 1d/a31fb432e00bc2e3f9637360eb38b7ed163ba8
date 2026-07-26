@@ -1,5 +1,6 @@
 spec/features/span-output-and-agent-lifecycle.md
   s_2cef447f040dd1::t_ba9afd11b66d17 1-8,10-14,17-18,20-30,33-63,65-82,85-89
+  s_4753775aade975::t_1b9914f01342cc 9,15-16,19,31-32,64,83-84
 src/types.ts
   s_2cef447f040dd1::t_517f88345a2e35 113
   s_2cef447f040dd1::t_67d0d48a32205a 114
@@ -19,6 +20,7 @@ src/handlers/message.ts
   s_2cef447f040dd1::t_de19b16a60f29f 131-136,139,180
   s_2cef447f040dd1::t_59309b2ea5698a 184
   s_2cef447f040dd1::t_38aa2fe46862c4 142,154
+  s_4753775aade975::t_2e7172ce07ddb1 137-138,508
 spec/features/span-attribute-capacity.md
   s_2cef447f040dd1::t_ba9afd11b66d17 1-58
 src/index.ts
@@ -53,6 +55,7 @@ tests/config.test.ts
   s_2cef447f040dd1::t_6d74ce8a8f6fec 414
 spec/features/README.md
   s_2cef447f040dd1::t_ba9afd11b66d17 1-8,10-12
+  s_4753775aade975::t_1b9914f01342cc 9
 src/ai-telemetry.ts
   s_2cef447f040dd1::t_c727e65f26419b 1,5,9,11-18,22-25,43-57,66,93-96,101,105-106,109-121,125-126,129-134,137-163,174,190-216,218-228,240-241,250,252-273,275-281,287,289,291-292,300,302,304
   s_2cef447f040dd1::t_3dd69fe8039b9b 97-100,102-104,122-124
@@ -76,6 +79,7 @@ tests/handlers/spans.test.ts
   s_2cef447f040dd1::t_de19b16a60f29f 14,16-17,108-114,267-274
   s_2cef447f040dd1::t_ae7aec1a813925 410
   s_2cef447f040dd1::t_3f070468fed38a 490
+  s_4753775aade975::t_2e7172ce07ddb1 277,281
 spec/features/llm-header-capture.md
   s_2cef447f040dd1::t_ba9afd11b66d17 1-70
 bun.lock
@@ -91,6 +95,14 @@ bun.lock
       "agent_id": {
         "tool": "codex",
         "id": "019f542b-31ec-72d1-ab82-c9faa7b91b44",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    },
+    "s_4753775aade975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d56-e314-7141-95d8-e94a73d3499f",
         "model": "gpt-5.6-sol"
       },
       "human_author": "shenxionghao <sxh139726845@163.com>"
