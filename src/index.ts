@@ -2,7 +2,6 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { SeverityNumber } from "@opentelemetry/api-logs"
 import { logs } from "@opentelemetry/api-logs"
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
-import { AGENT_NAME } from "@arizeai/openinference-semantic-conventions"
 import pkg from "../package.json" with { type: "json" }
 import type {
   EventSessionCreated,
@@ -112,8 +111,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const assistantRuns = new Map()
   const pendingRuns = new Map()
   const runInputs = new Map()
-  const sessionSpans = new Map()
-  const sessionSpanContexts = new Map()
+  const sessionParents = new Map()
   const messageSpans = new Map()
   const messageOutputs = new Map()
   const llmRequestContexts = new Map()
@@ -155,8 +153,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     assistantRuns,
     pendingRuns,
     runInputs,
-    sessionSpans,
-    sessionSpanContexts,
+    sessionParents,
     messageSpans,
     messageOutputs,
     llmRequestContexts,
@@ -224,12 +221,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         cost: existingTotals?.cost ?? 0,
         messages: existingTotals?.messages ?? 0,
         agent,
-        agentType: existingTotals?.agentType ?? "primary",
+        agentType: sessionParents.has(input.sessionID) ? "subagent" : existingTotals?.agentType ?? "primary",
       }
       setBoundedMap(sessionTotals, input.sessionID, nextTotals)
       const { agentType } = getSessionAgentMeta(input.sessionID, ctx)
-      const sessionSpan = sessionSpans.get(input.sessionID)
-      if (sessionSpan) sessionSpan.setAttributes({ [AGENT_NAME]: agent, "agent.type": agentType })
       const promptText = output.parts.map((part) => {
         switch (part.type) {
           case "text":
@@ -244,26 +239,24 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
             return ""
         }
       }).filter(Boolean).join("\n")
-      if (!sessionSpan) {
-        const model = input.model ? `${input.model.providerID}/${input.model.modelID}` : "unknown"
-        if (input.messageID) {
-          handleRunStarted(
-            input.messageID,
-            input.sessionID,
-            agent,
-            promptText,
-            model,
-            startTime,
-            ctx,
-          )
-        } else {
-          setBoundedMap(pendingRuns, input.sessionID, {
-            agent,
-            promptText,
-            model,
-            startTime,
-          })
-        }
+      const model = input.model ? `${input.model.providerID}/${input.model.modelID}` : "unknown"
+      if (input.messageID) {
+        handleRunStarted(
+          input.messageID,
+          input.sessionID,
+          agent,
+          promptText,
+          model,
+          startTime,
+          ctx,
+        )
+      } else {
+        setBoundedMap(pendingRuns, input.sessionID, {
+          agent,
+          promptText,
+          model,
+          startTime,
+        })
       }
       const promptLength = promptText.length
       emitLog({
@@ -318,7 +311,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           const info = msgEvt.properties.info
           if (info.role === "user") {
             const pendingRun = pendingRuns.get(info.sessionID)
-            if (!sessionSpans.has(info.sessionID) && (pendingRun || activeRuns.get(info.sessionID) !== info.id)) {
+            if (pendingRun || activeRuns.get(info.sessionID) !== info.id) {
               handleRunStarted(
                 info.id,
                 info.sessionID,

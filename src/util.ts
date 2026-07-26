@@ -55,10 +55,6 @@ export function resolveSessionTraceContext(
   input?: { assistantMessageID?: string; runID?: string },
 ) {
   const baseCtx = ctx.rootContext()
-  const sessionSpan = ctx.sessionSpans.get(sessionID)
-  if (sessionSpan) return trace.setSpan(baseCtx, sessionSpan)
-  const sessionSpanContext = ctx.sessionSpanContexts.get(sessionID)
-  if (sessionSpanContext) return trace.setSpanContext(baseCtx, sessionSpanContext)
   if (input?.runID) return resolveRunTraceContext(input.runID, ctx)
   const assistantRunID = input?.assistantMessageID
     ? ctx.assistantRuns.get(input.assistantMessageID)

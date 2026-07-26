@@ -218,6 +218,19 @@ describe("handleSessionCreated — is_subagent", () => {
     expect(counters.session.calls.at(0)!.attrs["is_subagent"]).toBe(true)
   })
 
+  test("stores the parent session for a child session", async () => {
+    const { ctx } = makeCtx()
+    await handleSessionCreated(makeSessionCreated("ses_child", 1000, "ses_parent"), ctx)
+    expect(ctx.sessionParents.get("ses_child")).toBe("ses_parent")
+  })
+
+  test("keeps the parent session after the child becomes idle", async () => {
+    const { ctx } = makeCtx()
+    await handleSessionCreated(makeSessionCreated("ses_child", 1000, "ses_parent"), ctx)
+    handleSessionIdle(makeSessionIdle("ses_child"), ctx)
+    expect(ctx.sessionParents.get("ses_child")).toBe("ses_parent")
+  })
+
   test("includes is_subagent=false on session.created log record", async () => {
     const { ctx, logger } = makeCtx()
     await handleSessionCreated(makeSessionCreated("ses_1"), ctx)

@@ -228,7 +228,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
  * a `tool_result` log event. Also handles `subtask` parts, incrementing the sub-agent
  * invocation counter and emitting a `subtask_invoked` log event.
  *
- * For tool spans: on `running` a child span of the current session span is started and stored
+ * For tool spans: on `running` a child span of the current run span is started and stored
  * in `pendingToolSpans`. On `completed`/`error` the span is ended with appropriate status.
  * If no `running` event was seen (out-of-order), a best-effort span is started and immediately ended.
  */
@@ -418,7 +418,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
 
 /**
  * Starts an LLM span for an assistant message when it first appears in `message.updated`.
- * The span is parented to the active run or subagent span and carries `gen_ai.*` semantic
+ * The span is parented to the active run and carries `gen_ai.*` semantic
  * attributes for the model and provider. It is ended in `handleMessageUpdated` once the
  * message completes.
  *
