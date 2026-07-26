@@ -1,0 +1,40 @@
+tests/handlers/spans.test.ts
+  s_4753775aade975::t_fde195978a42e0 328,337,446,533,539,629
+  s_4753775aade975::t_4105e09a080148 103-104,110,114,118-119,217,225-226,515,586
+  s_4753775aade975::t_2d67ffb33f8787 219
+src/handlers/message.ts
+  s_4753775aade975::t_fde195978a42e0 231,421
+src/types.ts
+  s_4753775aade975::t_fdd2329e24b5ce 108
+tests/handlers/session.test.ts
+  s_4753775aade975::t_4105e09a080148 221-233
+tests/helpers.ts
+  s_4753775aade975::t_fdd2329e24b5ce 241
+src/index.ts
+  s_4753775aade975::t_fdd2329e24b5ce 114,156,224,242-259,314
+src/handlers/session.ts
+  s_4753775aade975::t_fdd2329e24b5ce 21,41-42,47-48,61,70-71,83,100
+  s_4753775aade975::t_fde195978a42e0 89,147,212
+  s_4753775aade975::t_2d67ffb33f8787 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "87fe43647af2768a8f7bcf45d5d8b903a6db2c44",
+  "prompts": {},
+  "humans": {
+    "h_c0249eec84d377": {
+      "author": "shenxionghao <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_4753775aade975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d56-e314-7141-95d8-e94a73d3499f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
