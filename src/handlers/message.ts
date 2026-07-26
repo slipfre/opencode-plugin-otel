@@ -1,5 +1,5 @@
 import { SeverityNumber } from "@opentelemetry/api-logs"
-import { SpanStatusCode, SpanKind } from "@opentelemetry/api"
+import { SpanStatusCode, SpanKind, type Span } from "@opentelemetry/api"
 import type { AssistantMessage, EventMessageUpdated, EventMessagePartUpdated, ToolPart } from "@opencode-ai/sdk"
 import {
   AGENT_NAME,
@@ -40,7 +40,7 @@ import {
   isTraceEnabled,
   resolveSessionTraceContext,
 } from "../util.ts"
-import type { HandlerContext } from "../types.ts"
+import type { HandlerContext, RunDetails } from "../types.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
@@ -52,6 +52,43 @@ type SubtaskPart = {
   prompt: string
   description: string
   agent: string
+}
+
+function taskMetadata(toolPart: ToolPart) {
+  if (toolPart.tool !== "task" || !("metadata" in toolPart.state)) return
+  const metadata = toolPart.state.metadata
+  if (!metadata || metadata.background === true || typeof metadata.sessionId !== "string") return
+  const input = toolPart.state.input
+  const agent = input && typeof input.subagent_type === "string"
+    ? input.subagent_type
+    : undefined
+  return {
+    childSessionID: metadata.sessionId,
+    parentSessionID: typeof metadata.parentSessionId === "string" ? metadata.parentSessionId : toolPart.sessionID,
+    agent,
+  }
+}
+
+function removePendingSubagentRun(sessionID: string, taskCallID: string, ctx: HandlerContext) {
+  if (ctx.pendingSubagentRuns.get(sessionID)?.taskCallID === taskCallID) {
+    ctx.pendingSubagentRuns.delete(sessionID)
+  }
+}
+
+function bindSubagentRun(toolPart: ToolPart, toolSpan: Span | undefined, ctx: HandlerContext) {
+  const task = taskMetadata(toolPart)
+  if (!task) return
+  toolSpan?.setAttributes({
+    "subagent.session.id": task.childSessionID,
+    ...(task.agent ? { "subagent.agent.name": task.agent } : {}),
+  })
+  const existing = ctx.pendingSubagentRuns.get(task.childSessionID)
+  setBoundedMap(ctx.pendingSubagentRuns, task.childSessionID, {
+    agentType: "subagent",
+    parentSessionID: task.parentSessionID,
+    taskCallID: toolPart.callID,
+    taskSpanContext: toolSpan?.spanContext() ?? existing?.taskSpanContext,
+  })
 }
 
 function recordLlmOutputEnd(toolPart: ToolPart, outputEndTime: number, ctx: HandlerContext) {
@@ -319,6 +356,15 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
 
     if (toolPart.state.status === "running") {
       recordLlmOutputEnd(toolPart, toolPart.state.time.start, ctx)
+      const pending = ctx.pendingToolSpans.get(key)
+      if (pending) {
+        pending.span?.setAttributes({
+          [TOOL_PARAMETERS]: JSON.stringify(toolPart.state.input),
+          [INPUT_VALUE]: JSON.stringify(toolPart.state.input),
+        })
+        bindSubagentRun(toolPart, pending.span, ctx)
+        return
+      }
       const { agentName, agentType } = getSessionAgentMeta(toolPart.sessionID, ctx)
       const toolSpan = isTraceEnabled("tool", ctx)
         ? (() => {
@@ -352,6 +398,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
         startMs: toolPart.state.time.start,
         span: toolSpan,
       })
+      bindSubagentRun(toolPart, toolSpan, ctx)
       ctx.log("debug", "otel: tool span started", { sessionID: toolPart.sessionID, tool: toolPart.tool, key })
       return
     }
@@ -366,6 +413,8 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     const duration_ms = end - start
     const success = toolPart.state.status === "completed"
     const { agentName, agentType } = getSessionAgentMeta(toolPart.sessionID, ctx)
+    const task = taskMetadata(toolPart)
+    if (task) removePendingSubagentRun(task.childSessionID, toolPart.callID, ctx)
 
     if (isMetricEnabled("tool.duration", ctx)) {
       ctx.instruments.toolDurationHistogram.record(duration_ms, {

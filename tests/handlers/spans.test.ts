@@ -86,19 +86,30 @@ function makeAssistantMessageUpdated(overrides: {
 
 function makeToolPartUpdated(
   status: "running" | "completed" | "error",
-  overrides: { sessionID?: string; messageID?: string; callID?: string; tool?: string; startMs?: number; endMs?: number; output?: string } = {},
+  overrides: {
+    sessionID?: string
+    messageID?: string
+    callID?: string
+    tool?: string
+    startMs?: number
+    endMs?: number
+    output?: string
+    input?: Record<string, unknown>
+    metadata?: Record<string, unknown>
+  } = {},
 ): EventMessagePartUpdated {
   const sessionID = overrides.sessionID ?? "ses_1"
   const messageID = overrides.messageID ?? "msg_1"
   const callID = overrides.callID ?? "call_1"
   const start = overrides.startMs ?? 1000
   const end = overrides.endMs ?? 2000
+  const input = overrides.input ?? {}
   const state =
     status === "running"
-      ? { status: "running", time: { start } }
+      ? { status: "running", input, time: { start }, ...(overrides.metadata ? { metadata: overrides.metadata } : {}) }
       : status === "completed"
-        ? { status: "completed", time: { start, end }, output: overrides.output ?? "ok" }
-        : { status: "error", time: { start, end }, error: "fail" }
+        ? { status: "completed", input, time: { start, end }, output: overrides.output ?? "ok", title: "done", metadata: overrides.metadata ?? {} }
+        : { status: "error", input, time: { start, end }, error: "fail", ...(overrides.metadata ? { metadata: overrides.metadata } : {}) }
   return {
     type: "message.part.updated",
     properties: { part: { type: "tool", sessionID, messageID, callID, tool: overrides.tool ?? "bash", state } },
@@ -232,6 +243,89 @@ describe("run spans", () => {
     expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
   })
 
+  test("foreground task parents the child interaction span", () => {
+    const { ctx, tracer } = makeCtx()
+    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      sessionID: "ses_parent",
+      callID: "call_task",
+      tool: "task",
+      input: { subagent_type: "review" },
+    }), ctx)
+    handleSessionCreated(makeSessionCreated("ses_child", 1100, "ses_parent"), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      sessionID: "ses_parent",
+      callID: "call_task",
+      tool: "task",
+      input: { subagent_type: "review" },
+      metadata: { parentSessionId: "ses_parent", sessionId: "ses_child" },
+    }), ctx)
+    const details = ctx.pendingSubagentRuns.get("ses_child")!
+    ctx.pendingSubagentRuns.delete("ses_child")
+    handleRunStarted("user_child", "ses_child", "review", "child prompt", "anthropic/claude", 1200, ctx, details)
+
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[1]!.name).toBe("opencode.tool.task")
+    expect(tracer.spans[2]!.name).toBe("opencode.interaction")
+    expect(tracer.spans[2]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
+    expect(tracer.spans[2]!.attributes["session.parent_id"]).toBe("ses_parent")
+    expect(tracer.spans[2]!.attributes["task.call_id"]).toBe("call_task")
+  })
+
+  test("task metadata correlates a resumed foreground subagent without session.created", () => {
+    const { ctx, tracer } = makeCtx()
+    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      sessionID: "ses_parent",
+      callID: "call_resume",
+      tool: "task",
+      input: { subagent_type: "review", task_id: "ses_existing" },
+      metadata: { parentSessionId: "ses_parent", sessionId: "ses_existing" },
+    }), ctx)
+    const details = ctx.pendingSubagentRuns.get("ses_existing")!
+    handleRunStarted("user_child", "ses_existing", "review", "resume", "anthropic/claude", 1200, ctx, details)
+
+    expect(tracer.spans[2]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
+    expect(tracer.spans[2]!.attributes["task.call_id"]).toBe("call_resume")
+  })
+
+  test("parallel foreground tasks correlate each child interaction to its task span", () => {
+    const { ctx, tracer } = makeCtx()
+    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    for (const [callID, childSessionID] of [["call_one", "ses_one"], ["call_two", "ses_two"]] as const) {
+      handleMessagePartUpdated(makeToolPartUpdated("running", {
+        sessionID: "ses_parent",
+        callID,
+        tool: "task",
+        input: { subagent_type: "review" },
+        metadata: { parentSessionId: "ses_parent", sessionId: childSessionID },
+      }), ctx)
+    }
+    handleRunStarted(
+      "user_one",
+      "ses_one",
+      "review",
+      "one",
+      "anthropic/claude",
+      1100,
+      ctx,
+      ctx.pendingSubagentRuns.get("ses_one")!,
+    )
+    handleRunStarted(
+      "user_two",
+      "ses_two",
+      "review",
+      "two",
+      "anthropic/claude",
+      1200,
+      ctx,
+      ctx.pendingSubagentRuns.get("ses_two")!,
+    )
+
+    expect(tracer.spans[3]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
+    expect(tracer.spans[4]!.parentSpanContext?.spanId).toBe(tracer.spans[2]!.spanContext().spanId)
+  })
+
   test("subagent span falls back to a root trace when parent run is absent", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_child", 1000, "ses_missing_parent"), ctx)
@@ -299,6 +393,54 @@ describe("tool spans", () => {
     expect(tracer.spans[0]!.name).toBe("opencode.tool.bash")
     expect(tracer.spans[0]!.startTime).toBe(1000)
     expect(ctx.pendingToolSpans.has("ses_1:call_1")).toBe(true)
+  })
+
+  test("reuses the task span when foreground metadata arrives", () => {
+    const { ctx, tracer } = makeCtx()
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      tool: "task",
+      input: { subagent_type: "review" },
+    }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      tool: "task",
+      input: { subagent_type: "review" },
+      metadata: { parentSessionId: "ses_1", sessionId: "ses_child" },
+    }), ctx)
+
+    expect(tracer.spans).toHaveLength(1)
+    expect(ctx.pendingToolSpans.size).toBe(1)
+    expect(ctx.pendingSubagentRuns.get("ses_child")?.taskSpanContext?.spanId)
+      .toBe(tracer.spans[0]!.spanContext().spanId)
+    expect(tracer.spans[0]!.attributes["subagent.session.id"]).toBe("ses_child")
+    expect(tracer.spans[0]!.attributes["subagent.agent.name"]).toBe("review")
+  })
+
+  test("clears foreground subagent correlation when the task fails", () => {
+    const { ctx } = makeCtx()
+    const metadata = { parentSessionId: "ses_1", sessionId: "ses_child" }
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      tool: "task",
+      input: { subagent_type: "review" },
+      metadata,
+    }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("error", {
+      tool: "task",
+      input: { subagent_type: "review" },
+      metadata,
+    }), ctx)
+
+    expect(ctx.pendingSubagentRuns.has("ses_child")).toBe(false)
+  })
+
+  test("does not retain background task correlation", () => {
+    const { ctx } = makeCtx()
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      tool: "task",
+      input: { subagent_type: "review" },
+      metadata: { parentSessionId: "ses_1", sessionId: "ses_child", background: true },
+    }), ctx)
+
+    expect(ctx.pendingSubagentRuns.has("ses_child")).toBe(false)
   })
 
   test("tool span carries tool.name attribute", () => {
@@ -672,6 +814,30 @@ describe("OPENCODE_DISABLE_TRACES=tool", () => {
     expect(ctx.pendingToolSpans.has("ses_1:call_1")).toBe(true)
     expect(ctx.pendingToolSpans.get("ses_1:call_1")!.startMs).toBe(1000)
     expect(ctx.pendingToolSpans.get("ses_1:call_1")!.span).toBeUndefined()
+  })
+
+  test("subagent interaction falls back to the parent interaction", () => {
+    const { ctx, tracer } = makeCtx("proj_test", [], ["tool"])
+    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      sessionID: "ses_parent",
+      tool: "task",
+      input: { subagent_type: "review" },
+      metadata: { parentSessionId: "ses_parent", sessionId: "ses_child" },
+    }), ctx)
+    handleRunStarted(
+      "user_child",
+      "ses_child",
+      "review",
+      "child",
+      "anthropic/claude",
+      1100,
+      ctx,
+      ctx.pendingSubagentRuns.get("ses_child")!,
+    )
+
+    expect(tracer.spans).toHaveLength(2)
+    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
   })
 
   test("tool.duration histogram still records on completion", () => {

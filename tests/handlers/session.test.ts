@@ -112,6 +112,17 @@ describe("handleSessionIdle", () => {
     expect(ctx.pendingToolSpans.has("ses_other:call_2")).toBe(true)
   })
 
+  test("sweeps foreground subagent correlation owned by the session", () => {
+    const { ctx } = makeCtx()
+    ctx.pendingSubagentRuns.set("ses_child", {
+      agentType: "subagent",
+      parentSessionID: "ses_parent",
+      taskCallID: "call_task",
+    })
+    handleSessionIdle(makeSessionIdle("ses_parent"), ctx)
+    expect(ctx.pendingSubagentRuns.has("ses_child")).toBe(false)
+  })
+
   test("records session duration histogram when totals exist", async () => {
     const { ctx, histograms } = makeCtx()
     await handleSessionCreated(makeSessionCreated("ses_1", Date.now() - 1000), ctx)

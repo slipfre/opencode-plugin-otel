@@ -15,7 +15,7 @@ import type {
   EventSessionDiff,
   EventCommandExecuted,
 } from "@opencode-ai/sdk"
-import { LEVELS, type Level, type HandlerContext } from "./types.ts"
+import { LEVELS, type Level, type HandlerContext, type RunDetails } from "./types.ts"
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
 import { setupOtel, createInstruments, forceFlushOtel } from "./otel.ts"
@@ -113,6 +113,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const activeRuns = new Map()
   const assistantRuns = new Map()
   const pendingRuns = new Map()
+  const pendingSubagentRuns = new Map()
   const runInputs = new Map()
   const sessionParents = new Map()
   const messageSpans = new Map()
@@ -157,6 +158,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     activeRuns,
     assistantRuns,
     pendingRuns,
+    pendingSubagentRuns,
     runInputs,
     sessionParents,
     messageSpans,
@@ -170,6 +172,19 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const unregisterAiTelemetry = registerAiTelemetry(ctx)
 
   let shuttingDown = false
+
+  function takeRunDetails(sessionID: string): RunDetails {
+    const details = pendingSubagentRuns.get(sessionID)
+    if (details) {
+      pendingSubagentRuns.delete(sessionID)
+      return details
+    }
+    const parentSessionID = sessionParents.get(sessionID)
+    return {
+      agentType: parentSessionID ? "subagent" : "primary",
+      ...(parentSessionID ? { parentSessionID } : {}),
+    }
+  }
 
   async function flushTelemetry(reason: string) {
     if (shuttingDown) return
@@ -228,13 +243,14 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
       const agent = input.agent ?? "unknown"
       const startTime = Date.now()
       const existingTotals = sessionTotals.get(input.sessionID)
+      const details = takeRunDetails(input.sessionID)
       const nextTotals: SessionTotals = {
         startMs: existingTotals?.startMs ?? startTime,
         tokens: existingTotals?.tokens ?? 0,
         cost: existingTotals?.cost ?? 0,
         messages: existingTotals?.messages ?? 0,
         agent,
-        agentType: sessionParents.has(input.sessionID) ? "subagent" : existingTotals?.agentType ?? "primary",
+        agentType: details.agentType,
       }
       setBoundedMap(sessionTotals, input.sessionID, nextTotals)
       const { agentType } = getSessionAgentMeta(input.sessionID, ctx)
@@ -262,6 +278,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           model,
           startTime,
           ctx,
+          details,
         )
       } else {
         setBoundedMap(pendingRuns, input.sessionID, {
@@ -269,6 +286,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           promptText,
           model,
           startTime,
+          details,
         })
       }
       const promptLength = promptText.length
@@ -325,6 +343,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           if (info.role === "user") {
             const pendingRun = pendingRuns.get(info.sessionID)
             if (pendingRun || activeRuns.get(info.sessionID) !== info.id) {
+              const details = pendingRun?.details ?? takeRunDetails(info.sessionID)
               handleRunStarted(
                 info.id,
                 info.sessionID,
@@ -333,6 +352,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
                 pendingRun?.model ?? `${info.model.providerID}/${info.model.modelID}`,
                 pendingRun?.startTime ?? info.time.created,
                 ctx,
+                details,
               )
             }
             break
