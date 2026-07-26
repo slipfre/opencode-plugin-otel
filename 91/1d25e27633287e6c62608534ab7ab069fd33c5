@@ -1,0 +1,23 @@
+src/types.ts
+  s_4753775aade975::t_0387e61e05b9bb 113
+tests/handlers/spans.test.ts
+  s_4753775aade975::t_0387e61e05b9bb 435-449
+src/handlers/message.ts
+  s_4753775aade975::t_0387e61e05b9bb 57-65,80-89,187,321
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "911d25e27633287e6c62608534ab7ab069fd33c5",
+  "prompts": {},
+  "sessions": {
+    "s_4753775aade975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d56-e314-7141-95d8-e94a73d3499f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    }
+  }
+}
