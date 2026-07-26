@@ -69,6 +69,7 @@ describe("loadConfig", () => {
     "OPENCODE_OTLP_HEADERS_HELPER",
     "OPENCODE_RESOURCE_ATTRIBUTES",
     "OPENCODE_SPAN_ATTRIBUTES",
+    "OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT",
     "OPENCODE_TRACEPARENT",
     "OPENCODE_TRACESTATE",
     "OPENCODE_OTLP_METRICS_TEMPORALITY",
@@ -91,6 +92,7 @@ describe("loadConfig", () => {
     expect(cfg.protocol).toBe("grpc")
     expect(cfg.metricsInterval).toBe(60000)
     expect(cfg.logsInterval).toBe(5000)
+    expect(cfg.spanAttributeCountLimit).toBe(4096)
   })
 
   test("enabled when OPENCODE_ENABLE_TELEMETRY is set", () => {
@@ -137,6 +139,16 @@ describe("loadConfig", () => {
     const cfg = loadConfig()
     expect(cfg.metricsInterval).toBe(60000)
     expect(cfg.logsInterval).toBe(5000)
+  })
+
+  test("reads the span attribute count limit", () => {
+    process.env["OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT"] = "2048"
+    expect(loadConfig().spanAttributeCountLimit).toBe(2048)
+  })
+
+  test("falls back for an invalid span attribute count limit", () => {
+    process.env["OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT"] = "0"
+    expect(loadConfig().spanAttributeCountLimit).toBe(4096)
   })
 
   test("copies OPENCODE_OTLP_HEADERS to OTEL_EXPORTER_OTLP_HEADERS", () => {
@@ -344,6 +356,7 @@ describe("loadConfig options", () => {
     "OPENCODE_OTLP_PROTOCOL",
     "OPENCODE_OTLP_METRICS_INTERVAL",
     "OPENCODE_OTLP_LOGS_INTERVAL",
+    "OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT",
     "OPENCODE_METRIC_PREFIX",
     "OPENCODE_OTLP_HEADERS",
     "OPENCODE_RESOURCE_ATTRIBUTES",
@@ -392,6 +405,11 @@ describe("loadConfig options", () => {
     const cfg = loadConfig({ metricsInterval: 15000, logsInterval: 2500 })
     expect(cfg.metricsInterval).toBe(15000)
     expect(cfg.logsInterval).toBe(2500)
+  })
+
+  test("option span attribute count limit overrides env", () => {
+    process.env["OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT"] = "2048"
+    expect(loadConfig({ spanAttributeCountLimit: 8192 }).spanAttributeCountLimit).toBe(8192)
   })
 
   test("invalid option interval falls back to env then default", () => {

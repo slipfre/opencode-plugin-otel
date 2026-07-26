@@ -78,6 +78,7 @@ export async function setupOtel(
   version: string,
   otlpHeaders?: string,
   otlpHeadersHelper?: string,
+  spanAttributeCountLimit = 4096,
 ): Promise<OtelProviders> {
   const resource = buildResource(version)
   const staticHeaders = parseOtlpHeaders(otlpHeaders)
@@ -137,6 +138,7 @@ export async function setupOtel(
 
   const tracerProvider = new BasicTracerProvider({
     resource,
+    spanLimits: { attributeCountLimit: spanAttributeCountLimit },
     spanProcessors: [new BatchSpanProcessor(traceExporter)],
   })
   trace.setGlobalTracerProvider(tracerProvider)

@@ -122,6 +122,16 @@ describe("setupOtel", () => {
     expect(exporters.log).toBeInstanceOf(OTLPHttpLogExporter)
     expect(exporters.trace).toBeInstanceOf(OTLPHttpTraceExporter)
   })
+
+  test("supports more than 128 span attributes", async () => {
+    providers = await setupOtel("http://collector:4317", "grpc", 60000, 5000, "1.2.3")
+    const span = providers.tracerProvider.getTracer("test").startSpan("many-attributes")
+    for (let index = 0; index < 256; index++) span.setAttribute(`attribute.${index}`, index)
+    const readable = span as unknown as { attributes: Record<string, unknown>; droppedAttributesCount: number }
+    expect(readable.attributes["attribute.255"]).toBe(255)
+    expect(readable.droppedAttributesCount).toBe(0)
+    span.end()
+  })
 })
 
 describe("forceFlushOtel", () => {

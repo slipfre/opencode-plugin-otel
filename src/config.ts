@@ -8,6 +8,7 @@ export const TRACE_TYPES = ["session", "llm", "tool"] as const
 
 const VALID_TEMPORALITIES: ReadonlySet<MetricsTemporality> = new Set<MetricsTemporality>(["cumulative", "delta", "lowmemory"])
 const TRACE_DISABLE_ALL_VALUES = new Set(["all", "*", "true", "1"])
+const DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT = 4096
 
 /** Configuration values resolved from `OPENCODE_*` environment variables. */
 export type PluginConfig = {
@@ -22,6 +23,7 @@ export type PluginConfig = {
   otlpHeadersHelper: string | undefined
   resourceAttributes: string | undefined
   spanAttributes: string | undefined
+  spanAttributeCountLimit: number
   traceparent: string | undefined
   tracestate: string | undefined
   metricsTemporality: MetricsTemporality | undefined
@@ -65,6 +67,7 @@ export type OtelPluginOptions = {
   otlpHeadersHelper?: string
   resourceAttributes?: string
   spanAttributes?: string
+  spanAttributeCountLimit?: number
   traceparent?: string
   tracestate?: string
   metricsTemporality?: MetricsTemporality
@@ -198,6 +201,8 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
     protocol,
     metricsInterval: pickPositiveInt(resolvedOptions.metricsInterval) ?? parseEnvInt("OPENCODE_OTLP_METRICS_INTERVAL", 60000),
     logsInterval: pickPositiveInt(resolvedOptions.logsInterval) ?? parseEnvInt("OPENCODE_OTLP_LOGS_INTERVAL", 5000),
+    spanAttributeCountLimit: pickPositiveInt(resolvedOptions.spanAttributeCountLimit)
+      ?? parseEnvInt("OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT", DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT),
     metricPrefix: pickString(resolvedOptions.metricPrefix) ?? process.env["OPENCODE_METRIC_PREFIX"] ?? "opencode.",
     otlpHeaders,
     otlpHeadersHelper,

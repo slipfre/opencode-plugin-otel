@@ -56,6 +56,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     protocol: config.protocol,
     metricsInterval: config.metricsInterval,
     logsInterval: config.logsInterval,
+    spanAttributeCountLimit: config.spanAttributeCountLimit,
     metricPrefix: config.metricPrefix,
     headersHelperSet: !!config.otlpHeadersHelper,
   })
@@ -85,6 +86,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     PLUGIN_VERSION,
     config.otlpHeaders,
     otlpHeadersHelper,
+    config.spanAttributeCountLimit,
   )
   const { meterProvider, loggerProvider, tracerProvider } = providers
   await log("info", "OTel SDK initialized")
