@@ -421,6 +421,24 @@ describe("run and interaction spans", () => {
     expect(ctx.interactionSpans.has("user_1")).toBe(false)
   })
 
+  test("does not recreate an ended interaction after a late user message update", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      parentID: "user_1",
+      finish: "stop",
+      time: { created: 1200, completed: 2400 },
+    }), ctx)
+
+    handleInteractionStarted("user_1", "ses_1", "build", "", "anthropic/claude", 1000, ctx)
+
+    expect(tracer.spans).toHaveLength(2)
+    expect(tracer.spans.filter(span => span.name === "opencode.interaction")).toHaveLength(1)
+    expect(ctx.interactionSpans.has("user_1")).toBe(false)
+    expect(ctx.activeInteractions.has("ses_1")).toBe(false)
+    expect(ctx.interactionTotals.has("user_1")).toBe(false)
+  })
+
   test("tool-call and compaction messages do not end the interaction", () => {
     const { ctx, tracer } = makeCtx()
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)

@@ -109,6 +109,9 @@ export function handleInteractionStarted(
   ctx: HandlerContext,
   details?: RunDetails,
 ) {
+  const existing = ctx.interactionSpans.get(interactionID)
+  // Async summary updates can re-emit an ended user message, whose retained context marks it as already handled.
+  if (!existing && ctx.interactionSpanContexts.has(interactionID)) return
   ctx.activeInteractions.set(sessionID, interactionID)
   ctx.pendingInteractions.delete(sessionID)
   if (promptText) setBoundedMap(ctx.interactionInputs, interactionID, promptText)
@@ -124,7 +127,6 @@ export function handleInteractionStarted(
   const parentSessionID = details?.parentSessionID ?? ctx.sessionParents.get(sessionID)
   const agentType: SessionAgentType = details?.agentType ?? (parentSessionID ? "subagent" : "primary")
   const isSubagent = agentType === "subagent"
-  const existing = ctx.interactionSpans.get(interactionID)
   if (existing) {
     existing.setAttributes({
       "opencode.interaction.id": interactionID,
