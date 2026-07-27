@@ -30,16 +30,17 @@ import { endInteractionSpan } from "../interaction.ts"
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 
 function setRunIOAttributes(run: ActiveRunSpan) {
-  const interactions = [...run.interactionIO].map(([id, value]) => ({ id, ...value }))
+  const interactions = [...run.interactionIO.values()]
+  const output = interactions.at(-1)?.output
   run.span.setAttributes({
-    [INPUT_VALUE]: JSON.stringify({
-      interactions: interactions.map(({ id, input }) => ({ id, input })),
-    }),
+    [INPUT_VALUE]: JSON.stringify(interactions.map(({ input }) => input)),
     [INPUT_MIME_TYPE]: MimeType.JSON,
-    [OUTPUT_VALUE]: JSON.stringify({
-      interactions: interactions.map(({ id, output }) => ({ id, output: output ?? null })),
-    }),
-    [OUTPUT_MIME_TYPE]: MimeType.JSON,
+    ...(output !== undefined
+      ? {
+          [OUTPUT_VALUE]: output,
+          [OUTPUT_MIME_TYPE]: MimeType.TEXT,
+        }
+      : {}),
   })
 }
 
@@ -119,9 +120,10 @@ export function handleInteractionStarted(
   const run = ensureRunStarted(sessionID, agent, startTime, ctx, details)
   if (run) {
     run.interactionIDs.add(interactionID)
+    const interactionIO = run.interactionIO.get(interactionID)
     run.interactionIO.set(interactionID, {
-      ...run.interactionIO.get(interactionID),
-      input: promptText,
+      ...interactionIO,
+      input: promptText || interactionIO?.input || "",
     })
   }
   const parentSessionID = details?.parentSessionID ?? ctx.sessionParents.get(sessionID)

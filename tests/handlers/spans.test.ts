@@ -230,13 +230,9 @@ describe("run and interaction spans", () => {
     expect(tracer.spans[1]!.ended).toBe(true)
     expect(tracer.spans[1]!.status.code).toBe(SpanStatusCode.ERROR)
     expect(tracer.spans[0]!.attributes[INPUT_MIME_TYPE]).toBe(MimeType.JSON)
-    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.JSON)
-    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual({
-      interactions: [{ id: "user_1", input: "prompt" }],
-    })
-    expect(JSON.parse(tracer.spans[0]!.attributes[OUTPUT_VALUE] as string)).toEqual({
-      interactions: [{ id: "user_1", output: null }],
-    })
+    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual(["prompt"])
+    expect(tracer.spans[0]!.attributes[OUTPUT_VALUE]).toBeUndefined()
+    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBeUndefined()
   })
 
   test("error message is propagated to run span status", () => {
@@ -439,6 +435,27 @@ describe("run and interaction spans", () => {
     expect(ctx.interactionTotals.has("user_1")).toBe(false)
   })
 
+  test("empty duplicate updates do not overwrite queued interaction inputs", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "first", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_2", "ses_1", "build", "second", "anthropic/claude", 1100, ctx)
+
+    handleInteractionStarted("user_1", "ses_1", "build", "", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_2", "ses_1", "build", "", "anthropic/claude", 1100, ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual(["first", "second"])
+  })
+
+  test("a later non-empty update fills an interaction created without input", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual(["prompt"])
+  })
+
   test("tool-call and compaction messages do not end the interaction", () => {
     const { ctx, tracer } = makeCtx()
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
@@ -546,19 +563,9 @@ describe("run and interaction spans", () => {
     expect(tracer.spans[0]!.attributes["run.total_interactions"]).toBe(2)
     expect(tracer.spans[0]!.attributes["interaction.count"]).toBeUndefined()
     expect(tracer.spans[0]!.attributes[INPUT_MIME_TYPE]).toBe(MimeType.JSON)
-    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.JSON)
-    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual({
-      interactions: [
-        { id: "user_1", input: "first" },
-        { id: "user_2", input: "second" },
-      ],
-    })
-    expect(JSON.parse(tracer.spans[0]!.attributes[OUTPUT_VALUE] as string)).toEqual({
-      interactions: [
-        { id: "user_1", output: "first response" },
-        { id: "user_2", output: "second response" },
-      ],
-    })
+    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
+    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual(["first", "second"])
+    expect(tracer.spans[0]!.attributes[OUTPUT_VALUE]).toBe("second response")
     expect(tracer.spans[1]!.attributes["interaction.total_tokens"]).toBe(150)
     expect(tracer.spans[1]!.attributes["interaction.total_cost_usd"]).toBe(0.01)
     expect(tracer.spans[2]!.attributes["interaction.total_tokens"]).toBe(300)

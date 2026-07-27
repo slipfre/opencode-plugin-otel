@@ -79,7 +79,7 @@ opencode.run (CHAIN, one session busy-to-idle execution)
 
 A new `opencode.run` starts when a session begins working and ends on `session.idle` or `session.error`. If another prompt is submitted while that session is already working, it creates another `opencode.interaction` under the existing run instead of creating a concurrent run. Different sessions can still have independent runs at the same time.
 
-Run spans include `opencode.run.id` and use the OpenInference `CHAIN` kind. Interaction spans include `opencode.interaction.id` (the user message ID) and use the OpenInference `AGENT` kind. Setting `OPENCODE_DISABLE_TRACES=session` disables both span types.
+Run spans include `opencode.run.id`, use the OpenInference `CHAIN` kind, expose their interaction inputs as a JSON array, and use the final interaction output as the run output. Interaction spans include `opencode.interaction.id` (the user message ID) and use the OpenInference `AGENT` kind. Setting `OPENCODE_DISABLE_TRACES=session` disables both span types.
 
 ## Installation
 
