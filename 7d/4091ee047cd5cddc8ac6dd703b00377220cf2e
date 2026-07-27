@@ -1,0 +1,28 @@
+src/handlers/session.ts
+  s_14355739727fca::t_ceaaa0b460d689 34,38-43
+  s_14355739727fca::t_227737cb2da93b 33
+  s_14355739727fca::t_0eff9f78a01cd9 36
+  s_14355739727fca::t_9d5ed6c7f0c598 123,125-126
+tests/handlers/spans.test.ts
+  s_14355739727fca::t_ceaaa0b460d689 234-235,566,568
+  s_14355739727fca::t_9d5ed6c7f0c598 438-458
+  s_14355739727fca::t_0eff9f78a01cd9 233,567
+README.md
+  s_14355739727fca::t_a0e2f59ab6f94d 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7d4091ee047cd5cddc8ac6dd703b00377220cf2e",
+  "prompts": {},
+  "sessions": {
+    "s_14355739727fca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa3fb-5d87-7ee1-92c5-91a13247c3ae",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    }
+  }
+}
