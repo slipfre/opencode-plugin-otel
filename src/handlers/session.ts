@@ -10,6 +10,8 @@ import {
   MESSAGE_ROLE,
   MimeType,
   OpenInferenceSpanKind,
+  OUTPUT_MIME_TYPE,
+  OUTPUT_VALUE,
   SemanticConventions,
   SESSION_ID,
 } from "@arizeai/openinference-semantic-conventions"
@@ -22,13 +24,83 @@ import {
   isTraceEnabled,
   resolveSessionTraceContext,
 } from "../util.ts"
-import type { HandlerContext, RunDetails, SessionAgentType } from "../types.ts"
+import type { ActiveRunSpan, HandlerContext, RunDetails, SessionAgentType } from "../types.ts"
+import { endInteractionSpan } from "../interaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 
+function setRunIOAttributes(run: ActiveRunSpan) {
+  const interactions = [...run.interactionIO].map(([id, value]) => ({ id, ...value }))
+  run.span.setAttributes({
+    [INPUT_VALUE]: JSON.stringify({
+      interactions: interactions.map(({ id, input }) => ({ id, input })),
+    }),
+    [INPUT_MIME_TYPE]: MimeType.JSON,
+    [OUTPUT_VALUE]: JSON.stringify({
+      interactions: interactions.map(({ id, output }) => ({ id, output: output ?? null })),
+    }),
+    [OUTPUT_MIME_TYPE]: MimeType.JSON,
+  })
+}
+
+function ensureRunStarted(
+  sessionID: string,
+  agent: string,
+  startTime: number,
+  ctx: HandlerContext,
+  details?: RunDetails,
+) {
+  if (!isTraceEnabled("session", ctx)) return
+  const parentSessionID = details?.parentSessionID ?? ctx.sessionParents.get(sessionID)
+  const agentType: SessionAgentType = details?.agentType ?? (parentSessionID ? "subagent" : "primary")
+  const isSubagent = agentType === "subagent"
+  const existing = ctx.activeRunSpans.get(sessionID)
+  if (existing) {
+    existing.span.setAttributes({
+      ...(agent !== "unknown" ? { [AGENT_NAME]: agent } : {}),
+      "agent.type": agentType,
+      "session.is_subagent": isSubagent,
+      ...(parentSessionID ? { "session.parent_id": parentSessionID } : {}),
+      ...(details?.taskCallID ? { "task.call_id": details.taskCallID } : {}),
+    })
+    return existing
+  }
+
+  const parentContext = details?.taskSpanContext
+    ? trace.setSpanContext(ctx.rootContext(), details.taskSpanContext)
+    : parentSessionID
+      ? resolveSessionTraceContext(parentSessionID, ctx)
+      : ctx.rootContext()
+  const span = ctx.tracer.startSpan(
+    `${ctx.tracePrefix}run`,
+    {
+      startTime,
+      attributes: {
+        [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.CHAIN,
+        [SESSION_ID]: sessionID,
+        [AGENT_NAME]: agent,
+        "agent.type": agentType,
+        "session.is_subagent": isSubagent,
+        ...(parentSessionID ? { "session.parent_id": parentSessionID } : {}),
+        ...(details?.taskCallID ? { "task.call_id": details.taskCallID } : {}),
+        ...ctx.commonAttrs,
+      },
+    },
+    parentContext,
+  )
+  span.setAttribute("opencode.run.id", span.spanContext().spanId)
+  const run = {
+    span,
+    interactionIDs: new Set<string>(),
+    interactionIO: new Map<string, { input: string; output?: string }>(),
+  }
+  ctx.activeRunSpans.set(sessionID, run)
+  return run
+}
+
 /** Starts or refreshes the interaction span for a single user turn, keyed by the user message ID. */
-export function handleRunStarted(
-  runID: string,
+export function handleInteractionStarted(
+  interactionID: string,
   sessionID: string,
   agent: string,
   promptText: string,
@@ -37,26 +109,30 @@ export function handleRunStarted(
   ctx: HandlerContext,
   details?: RunDetails,
 ) {
-  ctx.activeRuns.set(sessionID, runID)
-  ctx.pendingRuns.delete(sessionID)
-  if (promptText) setBoundedMap(ctx.runInputs, runID, promptText)
+  ctx.activeInteractions.set(sessionID, interactionID)
+  ctx.pendingInteractions.delete(sessionID)
+  if (promptText) setBoundedMap(ctx.interactionInputs, interactionID, promptText)
   if (!isTraceEnabled("session", ctx)) return
+  const run = ensureRunStarted(sessionID, agent, startTime, ctx, details)
+  if (run) {
+    run.interactionIDs.add(interactionID)
+    run.interactionIO.set(interactionID, {
+      ...run.interactionIO.get(interactionID),
+      input: promptText,
+    })
+  }
   const parentSessionID = details?.parentSessionID ?? ctx.sessionParents.get(sessionID)
   const agentType: SessionAgentType = details?.agentType ?? (parentSessionID ? "subagent" : "primary")
-  const runDetails = {
-    ...details,
-    agentType,
-    ...(parentSessionID ? { parentSessionID } : {}),
-  }
   const isSubagent = agentType === "subagent"
-  const existing = ctx.runSpans.get(runID)
+  const existing = ctx.interactionSpans.get(interactionID)
   if (existing) {
     existing.setAttributes({
+      "opencode.interaction.id": interactionID,
       [AGENT_NAME]: agent,
       "agent.type": agentType,
       "session.is_subagent": isSubagent,
       ...(parentSessionID ? { "session.parent_id": parentSessionID } : {}),
-      ...(runDetails.taskCallID ? { "task.call_id": runDetails.taskCallID } : {}),
+      ...(details?.taskCallID ? { "task.call_id": details.taskCallID } : {}),
       ...(promptText
         ? {
             [INPUT_VALUE]: promptText,
@@ -65,28 +141,25 @@ export function handleRunStarted(
             [`${LLM_INPUT_MESSAGES}.0.${MESSAGE_CONTENT}`]: promptText,
           }
         : {}),
-      model,
+      "opencode.model": model,
     })
     return
   }
 
-  const parentContext = runDetails.taskSpanContext
-    ? trace.setSpanContext(ctx.rootContext(), runDetails.taskSpanContext)
-    : parentSessionID
-      ? resolveSessionTraceContext(parentSessionID, ctx)
-      : ctx.rootContext()
-  const runSpan = ctx.tracer.startSpan(
+  const parentContext = run ? trace.setSpan(ctx.rootContext(), run.span) : ctx.rootContext()
+  const interactionSpan = ctx.tracer.startSpan(
     `${ctx.tracePrefix}interaction`,
     {
       startTime,
       attributes: {
         [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.AGENT,
+        "opencode.interaction.id": interactionID,
         [SESSION_ID]: sessionID,
         [AGENT_NAME]: agent,
         "agent.type": agentType,
         "session.is_subagent": isSubagent,
         ...(parentSessionID ? { "session.parent_id": parentSessionID } : {}),
-        ...(runDetails.taskCallID ? { "task.call_id": runDetails.taskCallID } : {}),
+        ...(details?.taskCallID ? { "task.call_id": details.taskCallID } : {}),
         ...(promptText
           ? {
               [INPUT_VALUE]: promptText,
@@ -95,14 +168,15 @@ export function handleRunStarted(
               [`${LLM_INPUT_MESSAGES}.0.${MESSAGE_CONTENT}`]: promptText,
             }
           : {}),
-        model,
+        "opencode.model": model,
         ...ctx.commonAttrs,
       },
     },
     parentContext,
   )
-  ctx.runSpans.set(runID, runSpan)
-  setBoundedMap(ctx.runSpanContexts, runID, runSpan.spanContext())
+  ctx.interactionSpans.set(interactionID, interactionSpan)
+  setBoundedMap(ctx.interactionSpanContexts, interactionID, interactionSpan.spanContext())
+  ctx.interactionTotals.set(interactionID, { tokens: 0, cost: 0, messages: 0 })
 }
 
 /** Increments the session counter, records session state, and emits a `session.created` log event. */
@@ -146,7 +220,7 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
       ctx.pendingToolSpans.delete(key)
     }
   }
-  ctx.pendingRuns.delete(sessionID)
+  ctx.pendingInteractions.delete(sessionID)
   ctx.pendingSubagentRuns.delete(sessionID)
   for (const [childSessionID, details] of ctx.pendingSubagentRuns) {
     if (details.parentSessionID === sessionID) ctx.pendingSubagentRuns.delete(childSessionID)
@@ -160,7 +234,9 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
     }
   }
   for (const key of ctx.messageOutputs.keys()) {
-    if (key.startsWith(msgPrefix)) ctx.messageOutputs.delete(key)
+    if (key.startsWith(msgPrefix) && !ctx.pendingAssistantInteractions.has(key)) {
+      ctx.messageOutputs.delete(key)
+    }
   }
   for (const key of ctx.llmRequestContexts.keys()) {
     if (key.startsWith(msgPrefix)) ctx.llmRequestContexts.delete(key)
@@ -168,6 +244,30 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
   ctx.activeMessageSpans.delete(sessionID)
   for (const key of ctx.llmTelemetryOutputs.keys()) {
     if (key.startsWith(msgPrefix)) ctx.llmTelemetryOutputs.delete(key)
+  }
+}
+
+function endInteractions(
+  sessionID: string,
+  status: SpanStatusCode.OK | SpanStatusCode.ERROR,
+  ctx: HandlerContext,
+  error?: string,
+) {
+  const run = ctx.activeRunSpans.get(sessionID)
+  if (!run) {
+    for (const [key, pending] of ctx.pendingAssistantInteractions) {
+      if (pending.sessionID === sessionID && !ctx.interactionSpans.has(pending.interactionID)) {
+        ctx.pendingAssistantInteractions.delete(key)
+      }
+    }
+    return
+  }
+  for (const interactionID of run.interactionIDs) {
+    const hasPendingAssistant = [...ctx.pendingAssistantInteractions.values()].some(
+      pending => pending.sessionID === sessionID && pending.interactionID === interactionID,
+    )
+    if (hasPendingAssistant) continue
+    endInteractionSpan(interactionID, sessionID, status, ctx, undefined, error)
   }
 }
 
@@ -179,6 +279,7 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   ctx.sessionTotals.delete(sessionID)
   ctx.sessionDiffTotals.delete(sessionID)
   sweepSession(sessionID, ctx)
+  endInteractions(sessionID, SpanStatusCode.OK, ctx)
 
   const attrs = { ...ctx.commonAttrs, "session.id": sessionID }
   let duration_ms: number | undefined
@@ -196,22 +297,22 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
     }
   }
 
-  const runID = ctx.activeRuns.get(sessionID)
-  if (runID) ctx.activeRuns.delete(sessionID)
-  const runSpan = runID ? ctx.runSpans.get(runID) : undefined
-  if (runSpan) {
+  const run = ctx.activeRunSpans.get(sessionID)
+  if (run) {
     if (totals) {
-      runSpan.setAttributes({
+      run.span.setAttributes({
         [AGENT_NAME]: totals.agent,
         "agent.type": totals.agentType,
-        "session.total_tokens": totals.tokens,
-        "session.total_cost_usd": totals.cost,
-        "session.total_messages": totals.messages,
+        "run.total_tokens": totals.tokens,
+        "run.total_cost_usd": totals.cost,
+        "run.total_messages": totals.messages,
       })
     }
-    runSpan.setStatus({ code: SpanStatusCode.OK })
-    runSpan.end()
-    ctx.runSpans.delete(runID!)
+    setRunIOAttributes(run)
+    run.span.setAttribute("run.total_interactions", run.interactionIDs.size)
+    run.span.setStatus({ code: SpanStatusCode.OK })
+    run.span.end()
+    ctx.activeRunSpans.delete(sessionID)
   }
 
   ctx.emitLog({
@@ -248,17 +349,26 @@ export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
     ctx.sessionDiffTotals.delete(rawID)
   }
   sweepSession(sessionID, ctx)
+  if (rawID) endInteractions(rawID, SpanStatusCode.ERROR, ctx, error)
 
   if (rawID) {
-    const runID = ctx.activeRuns.get(rawID)
-    if (runID) ctx.activeRuns.delete(rawID)
-    const runSpan = runID ? ctx.runSpans.get(runID) : undefined
-    if (runSpan) {
-      if (totals) runSpan.setAttributes({ [AGENT_NAME]: totals.agent, "agent.type": totals.agentType })
-      runSpan.setStatus({ code: SpanStatusCode.ERROR, message: error })
-      runSpan.setAttribute("error", error)
-      runSpan.end()
-      ctx.runSpans.delete(runID!)
+    const run = ctx.activeRunSpans.get(rawID)
+    if (run) {
+      if (totals) {
+        run.span.setAttributes({
+          [AGENT_NAME]: totals.agent,
+          "agent.type": totals.agentType,
+          "run.total_tokens": totals.tokens,
+          "run.total_cost_usd": totals.cost,
+          "run.total_messages": totals.messages,
+        })
+      }
+      setRunIOAttributes(run)
+      run.span.setAttribute("run.total_interactions", run.interactionIDs.size)
+      run.span.setStatus({ code: SpanStatusCode.ERROR, message: error })
+      run.span.setAttribute("error", error)
+      run.span.end()
+      ctx.activeRunSpans.delete(rawID)
     }
   }
 
@@ -281,8 +391,12 @@ export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
 
 /** Increments the retry counter when the session enters a retry state. */
 export function handleSessionStatus(e: EventSessionStatus, ctx: HandlerContext) {
-  if (e.properties.status.type !== "retry") return
   const { sessionID, status } = e.properties
+  if (status.type === "busy") {
+    ensureRunStarted(sessionID, "unknown", Date.now(), ctx)
+    return
+  }
+  if (status.type !== "retry") return
   const { attempt, message: retryMessage } = status
   if (isMetricEnabled("retry.count", ctx)) {
     ctx.instruments.retryCounter.add(1, { ...ctx.commonAttrs, "session.id": sessionID })

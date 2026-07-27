@@ -74,8 +74,20 @@ export type SessionTotals = {
   agentType: SessionAgentType
 }
 
+type InteractionTotals = {
+  tokens: number
+  cost: number
+  messages: number
+}
+
+export type ActiveRunSpan = {
+  span: Span
+  interactionIDs: Set<string>
+  interactionIO: Map<string, { input: string; output?: string }>
+}
+
 /** Pending interaction metadata captured from `chat.message` until the user message ID is known. */
-export type PendingRun = {
+export type PendingInteraction = {
   agent: string
   promptText: string
   model: string
@@ -107,13 +119,16 @@ export type HandlerContext = {
   tracer: Tracer
   tracePrefix: string
   rootContext: () => Context
-  runSpans: Map<string, Span>
-  runSpanContexts: Map<string, SpanContext>
-  activeRuns: Map<string, string>
-  assistantRuns: Map<string, string>
-  pendingRuns: Map<string, PendingRun>
+  activeRunSpans: Map<string, ActiveRunSpan>
+  interactionSpans: Map<string, Span>
+  interactionSpanContexts: Map<string, SpanContext>
+  activeInteractions: Map<string, string>
+  assistantInteractions: Map<string, string>
+  pendingAssistantInteractions: Map<string, { sessionID: string; interactionID: string }>
+  pendingInteractions: Map<string, PendingInteraction>
   pendingSubagentRuns: Map<string, RunDetails>
-  runInputs: Map<string, string>
+  interactionInputs: Map<string, string>
+  interactionTotals: Map<string, InteractionTotals>
   sessionParents: Map<string, string>
   messageSpans: Map<string, Span>
   messageOutputs: Map<string, string>

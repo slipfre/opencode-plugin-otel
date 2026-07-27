@@ -20,7 +20,13 @@ import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, ty
 import { probeEndpoint } from "./probe.ts"
 import { setupOtel, createInstruments, forceFlushOtel } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
-import { handleSessionCreated, handleSessionIdle, handleSessionError, handleSessionStatus, handleRunStarted } from "./handlers/session.ts"
+import {
+  handleSessionCreated,
+  handleSessionIdle,
+  handleSessionError,
+  handleSessionStatus,
+  handleInteractionStarted,
+} from "./handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handlePermissionUpdated, handlePermissionReplied } from "./handlers/permission.ts"
 import { handleSessionDiff, handleCommandExecuted } from "./handlers/activity.ts"
@@ -108,13 +114,16 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const pendingPermissions = new Map()
   const sessionTotals = new Map()
   const sessionDiffTotals = new Map()
-  const runSpans = new Map()
-  const runSpanContexts = new Map()
-  const activeRuns = new Map()
-  const assistantRuns = new Map()
-  const pendingRuns = new Map()
+  const activeRunSpans = new Map()
+  const interactionSpans = new Map()
+  const interactionSpanContexts = new Map()
+  const activeInteractions = new Map()
+  const assistantInteractions = new Map()
+  const pendingAssistantInteractions = new Map()
+  const pendingInteractions = new Map()
   const pendingSubagentRuns = new Map()
-  const runInputs = new Map()
+  const interactionInputs = new Map()
+  const interactionTotals = new Map()
   const sessionParents = new Map()
   const messageSpans = new Map()
   const messageOutputs = new Map()
@@ -153,13 +162,16 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     tracer,
     tracePrefix: config.metricPrefix,
     rootContext,
-    runSpans,
-    runSpanContexts,
-    activeRuns,
-    assistantRuns,
-    pendingRuns,
+    activeRunSpans,
+    interactionSpans,
+    interactionSpanContexts,
+    activeInteractions,
+    assistantInteractions,
+    pendingAssistantInteractions,
+    pendingInteractions,
     pendingSubagentRuns,
-    runInputs,
+    interactionInputs,
+    interactionTotals,
     sessionParents,
     messageSpans,
     messageOutputs,
@@ -270,7 +282,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
       }).filter(Boolean).join("\n")
       const model = input.model ? `${input.model.providerID}/${input.model.modelID}` : "unknown"
       if (input.messageID) {
-        handleRunStarted(
+        await log("info", "chat.message, input.messageID present")
+        handleInteractionStarted(
           input.messageID,
           input.sessionID,
           agent,
@@ -281,7 +294,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           details,
         )
       } else {
-        setBoundedMap(pendingRuns, input.sessionID, {
+        await log("info", "chat.message, input.messageID not present")
+        setBoundedMap(pendingInteractions, input.sessionID, {
           agent,
           promptText,
           model,
@@ -341,16 +355,16 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           const msgEvt = event as EventMessageUpdated
           const info = msgEvt.properties.info
           if (info.role === "user") {
-            const pendingRun = pendingRuns.get(info.sessionID)
-            if (pendingRun || activeRuns.get(info.sessionID) !== info.id) {
-              const details = pendingRun?.details ?? takeRunDetails(info.sessionID)
-              handleRunStarted(
+            const pendingInteraction = pendingInteractions.get(info.sessionID)
+            if (pendingInteraction || activeInteractions.get(info.sessionID) !== info.id) {
+              const details = pendingInteraction?.details ?? takeRunDetails(info.sessionID)
+              handleInteractionStarted(
                 info.id,
                 info.sessionID,
-                pendingRun?.agent ?? info.agent,
-                pendingRun?.promptText ?? "",
-                pendingRun?.model ?? `${info.model.providerID}/${info.model.modelID}`,
-                pendingRun?.startTime ?? info.time.created,
+                pendingInteraction?.agent ?? info.agent,
+                pendingInteraction?.promptText ?? "",
+                pendingInteraction?.model ?? `${info.model.providerID}/${info.model.modelID}`,
+                pendingInteraction?.startTime ?? info.time.created,
                 ctx,
                 details,
               )

@@ -39,29 +39,34 @@ export function setBoundedMap<K, V>(map: Map<K, V>, key: K, value: V) {
   map.set(key, value)
 }
 
-/** Resolves a root-run context from the live span first, then from the retained ended span context. */
-export function resolveRunTraceContext(runID: string, ctx: Pick<HandlerContext, "rootContext" | "runSpans" | "runSpanContexts">) {
+/** Resolves an interaction context from the live span first, then from the retained ended span context. */
+export function resolveInteractionTraceContext(
+  interactionID: string,
+  ctx: Pick<HandlerContext, "rootContext" | "interactionSpans" | "interactionSpanContexts">,
+) {
   const baseCtx = ctx.rootContext()
-  const runSpan = ctx.runSpans.get(runID)
-  if (runSpan) return trace.setSpan(baseCtx, runSpan)
-  const runSpanContext = ctx.runSpanContexts.get(runID)
-  return runSpanContext ? trace.setSpanContext(baseCtx, runSpanContext) : baseCtx
+  const interactionSpan = ctx.interactionSpans.get(interactionID)
+  if (interactionSpan) return trace.setSpan(baseCtx, interactionSpan)
+  const interactionSpanContext = ctx.interactionSpanContexts.get(interactionID)
+  return interactionSpanContext ? trace.setSpanContext(baseCtx, interactionSpanContext) : baseCtx
 }
 
 /** Resolves the best available trace parent for a session event or message/tool child span. */
 export function resolveSessionTraceContext(
   sessionID: string,
   ctx: HandlerContext,
-  input?: { assistantMessageID?: string; runID?: string },
+  input?: { assistantMessageID?: string; interactionID?: string },
 ) {
   const baseCtx = ctx.rootContext()
-  if (input?.runID) return resolveRunTraceContext(input.runID, ctx)
-  const assistantRunID = input?.assistantMessageID
-    ? ctx.assistantRuns.get(input.assistantMessageID)
+  if (input?.interactionID) return resolveInteractionTraceContext(input.interactionID, ctx)
+  const assistantInteractionID = input?.assistantMessageID
+    ? ctx.assistantInteractions.get(input.assistantMessageID)
     : undefined
-  if (assistantRunID) return resolveRunTraceContext(assistantRunID, ctx)
-  const activeRunID = ctx.activeRuns.get(sessionID)
-  return activeRunID ? resolveRunTraceContext(activeRunID, ctx) : baseCtx
+  if (assistantInteractionID) return resolveInteractionTraceContext(assistantInteractionID, ctx)
+  const activeInteractionID = ctx.activeInteractions.get(sessionID)
+  if (activeInteractionID) return resolveInteractionTraceContext(activeInteractionID, ctx)
+  const activeRun = ctx.activeRunSpans.get(sessionID)
+  return activeRun ? trace.setSpan(baseCtx, activeRun.span) : baseCtx
 }
 
 /**
@@ -100,6 +105,21 @@ export function accumulateSessionTotals(
     messages: existing.messages + 1,
     agent: existing.agent,
     agentType: existing.agentType,
+  })
+}
+
+export function accumulateInteractionTotals(
+  interactionID: string,
+  tokens: number,
+  cost: number,
+  ctx: HandlerContext,
+) {
+  const existing = ctx.interactionTotals.get(interactionID)
+  if (!existing) return
+  setBoundedMap(ctx.interactionTotals, interactionID, {
+    tokens: existing.tokens + tokens,
+    cost: existing.cost + cost,
+    messages: existing.messages + 1,
   })
 }
 

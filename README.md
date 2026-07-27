@@ -12,6 +12,7 @@ An [opencode](https://opencode.ai) plugin that exports telemetry via OpenTelemet
 - [What it instruments](#what-it-instruments)
   - [Metrics](#metrics)
   - [Log events](#log-events)
+  - [Trace spans](#trace-spans)
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Plugin options (opencode.json)](#plugin-options-opencodejson)
@@ -63,6 +64,22 @@ An [opencode](https://opencode.ai) plugin that exports telemetry via OpenTelemet
 | `tool_result` | Tool completed or errored (duration, success, output size) |
 | `tool_decision` | Permission prompt answered (accept/reject) |
 | `commit` | Git commit detected |
+
+### Trace spans
+
+The session trace hierarchy separates one serialized opencode execution from the user messages incorporated into it:
+
+```text
+opencode.run (CHAIN, one session busy-to-idle execution)
+├── opencode.interaction (AGENT, one user message)
+│   ├── opencode.llm
+│   └── opencode.tool.<name>
+└── opencode.interaction (AGENT, a queued user message in the same run)
+```
+
+A new `opencode.run` starts when a session begins working and ends on `session.idle` or `session.error`. If another prompt is submitted while that session is already working, it creates another `opencode.interaction` under the existing run instead of creating a concurrent run. Different sessions can still have independent runs at the same time.
+
+Run spans include `opencode.run.id` and use the OpenInference `CHAIN` kind. Interaction spans include `opencode.interaction.id` (the user message ID) and use the OpenInference `AGENT` kind. Setting `OPENCODE_DISABLE_TRACES=session` disables both span types.
 
 ## Installation
 

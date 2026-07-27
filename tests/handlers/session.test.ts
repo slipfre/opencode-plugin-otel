@@ -273,10 +273,14 @@ describe("handleSessionStatus", () => {
     expect(counters.retry.calls.at(0)!.attrs["session.id"]).toBe("ses_1")
   })
 
-  test("ignores busy status", () => {
-    const { ctx, counters } = makeCtx()
+  test("starts one fallback run span on busy status", () => {
+    const { ctx, counters, tracer } = makeCtx()
+    handleSessionStatus(makeSessionStatus("ses_1", { type: "busy" }), ctx)
     handleSessionStatus(makeSessionStatus("ses_1", { type: "busy" }), ctx)
     expect(counters.retry.calls).toHaveLength(0)
+    expect(tracer.spans).toHaveLength(1)
+    expect(tracer.spans[0]!.name).toBe("opencode.run")
+    expect(ctx.activeRunSpans.has("ses_1")).toBe(true)
   })
 
   test("ignores idle status", () => {

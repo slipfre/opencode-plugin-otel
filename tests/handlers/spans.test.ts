@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test"
 import { context, SpanStatusCode, trace, TraceFlags } from "@opentelemetry/api"
 import {
   AGENT_NAME,
+  INPUT_MIME_TYPE,
+  INPUT_VALUE,
   LLM_MODEL_NAME,
   LLM_PROVIDER,
   LLM_SYSTEM,
@@ -20,7 +22,7 @@ import {
   TOOL_NAME,
 } from "@arizeai/openinference-semantic-conventions"
 import type { Span } from "@opentelemetry/api"
-import { handleSessionCreated, handleSessionIdle, handleSessionError, handleRunStarted } from "../../src/handlers/session.ts"
+import { handleSessionCreated, handleSessionIdle, handleSessionError, handleInteractionStarted } from "../../src/handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "../../src/handlers/message.ts"
 import { remoteParentContext } from "../../src/trace-context.ts"
 import { makeCtx, makeTracer, type SpySpan } from "../helpers.ts"
@@ -63,6 +65,8 @@ function makeAssistantMessageUpdated(overrides: {
   tokens?: { input: number; output: number; reasoning: number; cache: { read: number; write: number } }
   time?: { created: number; completed?: number }
   error?: { name: string }
+  finish?: string
+  summary?: boolean
 }): EventMessageUpdated {
   return {
     type: "message.updated",
@@ -79,6 +83,8 @@ function makeAssistantMessageUpdated(overrides: {
         tokens: overrides.tokens ?? { input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
         time: overrides.time ?? { created: 1000, completed: 2000 },
         error: overrides.error,
+        finish: overrides.finish,
+        summary: overrides.summary,
       },
     },
   } as unknown as EventMessageUpdated
@@ -123,7 +129,7 @@ function makeTextPartUpdated(text: string, sessionID = "ses_1", messageID = "msg
   } as unknown as EventMessagePartUpdated
 }
 
-describe("run spans", () => {
+describe("run and interaction spans", () => {
   test("does not start a trace span on session.created", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1", 5000), ctx)
@@ -132,26 +138,32 @@ describe("run spans", () => {
 
   test("subagent run span carries session attributes", () => {
     const { ctx, tracer } = makeCtx("proj_test", [], [], true, { team: "platform" })
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 900, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 900, ctx)
     handleSessionCreated(makeSessionCreated("ses_1", 1000, "ses_parent"), ctx)
-    handleRunStarted("user_child", "ses_1", "review", "review", "anthropic/claude", 1100, ctx)
-    expect(tracer.spans[1]!.attributes["session.id"]).toBe("ses_1")
-    expect(tracer.spans[1]!.attributes[SESSION_ID]).toBe("ses_1")
-    expect(tracer.spans[1]!.attributes["team"]).toBe("platform")
-    expect(tracer.spans[1]!.attributes["agent.type"]).toBe("subagent")
-    expect(tracer.spans[1]!.attributes["session.is_subagent"]).toBe(true)
+    handleInteractionStarted("user_child", "ses_1", "review", "review", "anthropic/claude", 1100, ctx)
+    expect(tracer.spans[2]!.attributes["session.id"]).toBe("ses_1")
+    expect(tracer.spans[2]!.attributes[SESSION_ID]).toBe("ses_1")
+    expect(tracer.spans[2]!.attributes["team"]).toBe("platform")
+    expect(tracer.spans[2]!.attributes["agent.type"]).toBe("subagent")
+    expect(tracer.spans[2]!.attributes["session.is_subagent"]).toBe(true)
   })
 
-  test("run span is tagged as an OpenInference agent span", () => {
+  test("run and interaction spans use distinct OpenInference kinds", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
-    expect(tracer.spans[0]!.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.AGENT)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    expect(tracer.spans[0]!.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.CHAIN)
+    expect(tracer.spans[1]!.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.AGENT)
+    expect(tracer.spans[1]!.attributes["opencode.model"]).toBe("anthropic/claude")
+    expect(tracer.spans[1]!.attributes.model).toBeUndefined()
+    expect(tracer.spans[0]!.attributes["opencode.run.id"]).toBe(tracer.spans[0]!.spanContext().spanId)
+    expect(tracer.spans[1]!.attributes["opencode.interaction.id"]).toBe("user_1")
     expect(tracer.spans[0]!.attributes[AGENT_NAME]).toBe("build")
+    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
   })
 
   test("run span carries is_subagent=false for root session", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_root", "ses_root", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_root", "ses_root", "build", "prompt", "anthropic/claude", 1000, ctx)
     expect(tracer.spans[0]!.attributes["session.is_subagent"]).toBe(false)
   })
 
@@ -160,7 +172,7 @@ describe("run spans", () => {
     const rootContext = remoteParentContext("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", undefined)
     expect(rootContext).toBeDefined()
     ctx.rootContext = () => rootContext!
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     expect(tracer.spans[0]!.parentSpanContext?.traceId).toBe("0af7651916cd43dd8448eb211c80319c")
     expect(tracer.spans[0]!.parentSpanContext?.spanId).toBe("b7ad6b7169203331")
   })
@@ -174,47 +186,62 @@ describe("run spans", () => {
       spanId: "00f067aa0ba902b7",
       traceFlags: TraceFlags.SAMPLED,
     })
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     expect(tracer.spans[0]!.parentSpanContext?.traceId).toBe("4bf92f3577b34da6a3ce929d0e0e4736")
     expect(tracer.spans[0]!.parentSpanContext?.spanId).toBe("00f067aa0ba902b7")
   })
 
   test("ends run span with OK status on session.idle", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     const span = tracer.spans[0]!
     expect(span.ended).toBe(true)
     expect(span.status.code).toBe(SpanStatusCode.OK)
-    expect(ctx.runSpans.has("user_1")).toBe(false)
+    expect(ctx.activeRunSpans.has("ses_1")).toBe(false)
+    expect(ctx.interactionSpans.has("user_1")).toBe(false)
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.status.code).toBe(SpanStatusCode.OK)
   })
 
-  test("sets session total attributes on the run span before ending on idle", () => {
+  test("sets run total attributes before ending on idle", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build", agentType: "primary" })
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     const span = tracer.spans[0]!
-    expect(span.attributes["session.total_tokens"]).toBe(250)
-    expect(span.attributes["session.total_cost_usd"]).toBe(0.05)
-    expect(span.attributes["session.total_messages"]).toBe(3)
+    expect(span.attributes["run.total_tokens"]).toBe(250)
+    expect(span.attributes["run.total_cost_usd"]).toBe(0.05)
+    expect(span.attributes["run.total_messages"]).toBe(3)
+    expect(span.attributes["session.total_tokens"]).toBeUndefined()
     expect(span.attributes[AGENT_NAME]).toBe("build")
     expect(span.attributes["agent.type"]).toBe("primary")
   })
 
   test("ends run span with ERROR status on session.error", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionError(makeSessionError("ses_1", { name: "NetworkError" }), ctx)
     const span = tracer.spans[0]!
     expect(span.ended).toBe(true)
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
-    expect(ctx.runSpans.has("user_1")).toBe(false)
+    expect(ctx.activeRunSpans.has("ses_1")).toBe(false)
+    expect(ctx.interactionSpans.has("user_1")).toBe(false)
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.status.code).toBe(SpanStatusCode.ERROR)
+    expect(tracer.spans[0]!.attributes[INPUT_MIME_TYPE]).toBe(MimeType.JSON)
+    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.JSON)
+    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual({
+      interactions: [{ id: "user_1", input: "prompt" }],
+    })
+    expect(JSON.parse(tracer.spans[0]!.attributes[OUTPUT_VALUE] as string)).toEqual({
+      interactions: [{ id: "user_1", output: null }],
+    })
   })
 
   test("error message is propagated to run span status", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionError(makeSessionError("ses_1", { name: "TimeoutError" }), ctx)
     expect(tracer.spans[0]!.status.message).toBe("TimeoutError")
   })
@@ -227,25 +254,28 @@ describe("run spans", () => {
 
   test("session.error with undefined sessionID does not end any span", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionError(makeSessionError(undefined, { name: "UnknownError" }), ctx)
-    expect(ctx.runSpans.has("user_1")).toBe(true)
+    expect(ctx.interactionSpans.has("user_1")).toBe(true)
     expect(tracer.spans[0]!.ended).toBe(false)
+    expect(tracer.spans[1]!.ended).toBe(false)
   })
 
-  test("subagent span is parented to the active run span", () => {
+  test("subagent run is parented to the parent interaction", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionCreated(makeSessionCreated("ses_child", 2000, "ses_parent"), ctx)
-    handleRunStarted("user_child", "ses_child", "review", "review", "anthropic/claude", 2100, ctx)
-    expect(tracer.spans).toHaveLength(2)
-    expect(tracer.spans[1]!.name).toBe("opencode.interaction")
-    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
+    handleInteractionStarted("user_child", "ses_child", "review", "review", "anthropic/claude", 2100, ctx)
+    expect(tracer.spans).toHaveLength(4)
+    expect(tracer.spans[2]!.name).toBe("opencode.run")
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[1])
+    expect(tracer.spans[3]!.name).toBe("opencode.interaction")
+    expect(tracer.spans[3]!.parentSpan).toBe(tracer.spans[2])
   })
 
   test("foreground task parents the child interaction span", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("running", {
       sessionID: "ses_parent",
       callID: "call_task",
@@ -262,19 +292,21 @@ describe("run spans", () => {
     }), ctx)
     const details = ctx.pendingSubagentRuns.get("ses_child")!
     ctx.pendingSubagentRuns.delete("ses_child")
-    handleRunStarted("user_child", "ses_child", "review", "child prompt", "anthropic/claude", 1200, ctx, details)
+    handleInteractionStarted("user_child", "ses_child", "review", "child prompt", "anthropic/claude", 1200, ctx, details)
 
-    expect(tracer.spans).toHaveLength(3)
-    expect(tracer.spans[1]!.name).toBe("opencode.tool.task")
-    expect(tracer.spans[2]!.name).toBe("opencode.interaction")
-    expect(tracer.spans[2]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
-    expect(tracer.spans[2]!.attributes["session.parent_id"]).toBe("ses_parent")
-    expect(tracer.spans[2]!.attributes["task.call_id"]).toBe("call_task")
+    expect(tracer.spans).toHaveLength(5)
+    expect(tracer.spans[2]!.name).toBe("opencode.tool.task")
+    expect(tracer.spans[3]!.name).toBe("opencode.run")
+    expect(tracer.spans[3]!.parentSpanContext?.spanId).toBe(tracer.spans[2]!.spanContext().spanId)
+    expect(tracer.spans[4]!.name).toBe("opencode.interaction")
+    expect(tracer.spans[4]!.parentSpan).toBe(tracer.spans[3])
+    expect(tracer.spans[3]!.attributes["session.parent_id"]).toBe("ses_parent")
+    expect(tracer.spans[3]!.attributes["task.call_id"]).toBe("call_task")
   })
 
   test("task metadata correlates a resumed foreground subagent without session.created", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("running", {
       sessionID: "ses_parent",
       callID: "call_resume",
@@ -283,15 +315,16 @@ describe("run spans", () => {
       metadata: { parentSessionId: "ses_parent", sessionId: "ses_existing" },
     }), ctx)
     const details = ctx.pendingSubagentRuns.get("ses_existing")!
-    handleRunStarted("user_child", "ses_existing", "review", "resume", "anthropic/claude", 1200, ctx, details)
+    handleInteractionStarted("user_child", "ses_existing", "review", "resume", "anthropic/claude", 1200, ctx, details)
 
-    expect(tracer.spans[2]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
-    expect(tracer.spans[2]!.attributes["task.call_id"]).toBe("call_resume")
+    expect(tracer.spans[3]!.parentSpanContext?.spanId).toBe(tracer.spans[2]!.spanContext().spanId)
+    expect(tracer.spans[3]!.attributes["task.call_id"]).toBe("call_resume")
+    expect(tracer.spans[4]!.parentSpan).toBe(tracer.spans[3])
   })
 
   test("parallel foreground tasks correlate each child interaction to its task span", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
     for (const [callID, childSessionID] of [["call_one", "ses_one"], ["call_two", "ses_two"]] as const) {
       handleMessagePartUpdated(makeToolPartUpdated("running", {
         sessionID: "ses_parent",
@@ -301,7 +334,7 @@ describe("run spans", () => {
         metadata: { parentSessionId: "ses_parent", sessionId: childSessionID },
       }), ctx)
     }
-    handleRunStarted(
+    handleInteractionStarted(
       "user_one",
       "ses_one",
       "review",
@@ -311,7 +344,7 @@ describe("run spans", () => {
       ctx,
       ctx.pendingSubagentRuns.get("ses_one")!,
     )
-    handleRunStarted(
+    handleInteractionStarted(
       "user_two",
       "ses_two",
       "review",
@@ -322,57 +355,133 @@ describe("run spans", () => {
       ctx.pendingSubagentRuns.get("ses_two")!,
     )
 
-    expect(tracer.spans[3]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
     expect(tracer.spans[4]!.parentSpanContext?.spanId).toBe(tracer.spans[2]!.spanContext().spanId)
+    expect(tracer.spans[5]!.parentSpan).toBe(tracer.spans[4])
+    expect(tracer.spans[6]!.parentSpanContext?.spanId).toBe(tracer.spans[3]!.spanContext().spanId)
+    expect(tracer.spans[7]!.parentSpan).toBe(tracer.spans[6])
   })
 
   test("subagent span falls back to a root trace when parent run is absent", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_child", 1000, "ses_missing_parent"), ctx)
-    expect(() => handleRunStarted("user_child", "ses_child", "review", "review", "anthropic/claude", 1100, ctx)).not.toThrow()
-    expect(tracer.spans).toHaveLength(1)
+    expect(() => handleInteractionStarted("user_child", "ses_child", "review", "review", "anthropic/claude", 1100, ctx)).not.toThrow()
+    expect(tracer.spans).toHaveLength(2)
     expect(tracer.spans[0]!.parentSpan).toBeUndefined()
     expect(tracer.spans[0]!.parentSpanContext).toBeUndefined()
+    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
   })
 
-  test("late child spans reuse the ended run trace context", () => {
+  test("late child spans reuse the ended interaction trace context", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     startMessageSpan("ses_1", "msg_late", "user_1", "claude", "anthropic", 2000, ctx)
-    expect(tracer.spans).toHaveLength(2)
-    expect(tracer.spans[1]!.parentSpanContext).toBeDefined()
-    expect(tracer.spans[1]!.parentSpanContext?.spanId).toBe(tracer.spans[0]!.spanContext().spanId)
-    expect(tracer.spans[1]!.parentSpanContext?.traceId).toBe(tracer.spans[0]!.spanContext().traceId)
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[2]!.parentSpanContext).toBeDefined()
+    expect(tracer.spans[2]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
+    expect(tracer.spans[2]!.parentSpanContext?.traceId).toBe(tracer.spans[1]!.spanContext().traceId)
   })
 
-  test("late child events stay on the previous run after a new run starts", () => {
+  test("late child events stay on the previous interaction after a new run starts", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt one", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt one", "anthropic/claude", 1000, ctx)
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1100, ctx)
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
-    handleRunStarted("user_2", "ses_1", "build", "prompt two", "anthropic/claude", 2000, ctx)
+    handleInteractionStarted("user_2", "ses_1", "build", "prompt two", "anthropic/claude", 2000, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("running", { sessionID: "ses_1", messageID: "msg_1", callID: "call_late" }), ctx)
-    expect(tracer.spans).toHaveLength(4)
-    expect(tracer.spans[3]!.name).toBe("opencode.tool.bash")
-    expect(tracer.spans[3]!.parentSpanContext?.spanId).toBe(tracer.spans[0]!.spanContext().spanId)
-    expect(tracer.spans[3]!.parentSpanContext?.spanId).not.toBe(tracer.spans[2]!.spanContext().spanId)
+    expect(tracer.spans).toHaveLength(6)
+    expect(tracer.spans[5]!.name).toBe("opencode.tool.bash")
+    expect(tracer.spans[5]!.parentSpanContext?.spanId).toBe(tracer.spans[1]!.spanContext().spanId)
+    expect(tracer.spans[5]!.parentSpanContext?.spanId).not.toBe(tracer.spans[4]!.spanContext().spanId)
   })
 
-  test("run span carries the final assistant output", () => {
+  test("interaction span carries the final assistant output", () => {
     const { ctx, tracer } = makeCtx("proj_test", [], ["llm"])
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessagePartUpdated(makeTextPartUpdated("final answer"), ctx)
     handleMessageUpdated(makeAssistantMessageUpdated({ id: "msg_1", parentID: "user_1", mode: "build" }), ctx)
-    expect(tracer.spans[0]!.attributes[OUTPUT_VALUE]).toBe("final answer")
-    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
+    expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("final answer")
+    expect(tracer.spans[1]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
+  })
+
+  test("interaction span ends at the terminal assistant completion time", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      parentID: "user_1",
+      finish: "stop",
+      time: { created: 1200, completed: 2400 },
+    }), ctx)
+
+    const interactionSpan = tracer.spans[1]!
+    expect(interactionSpan.ended).toBe(true)
+    expect(interactionSpan.endTime).toBe(2400)
+    expect(interactionSpan.status.code).toBe(SpanStatusCode.OK)
+    expect(interactionSpan.attributes["interaction.total_tokens"]).toBe(150)
+    expect(ctx.interactionSpans.has("user_1")).toBe(false)
+  })
+
+  test("tool-call and compaction messages do not end the interaction", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_tool",
+      parentID: "user_1",
+      finish: "tool-calls",
+      time: { created: 1200, completed: 2000 },
+    }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_compaction",
+      parentID: "user_1",
+      finish: "stop",
+      summary: true,
+      time: { created: 2100, completed: 3000 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(false)
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_final",
+      parentID: "user_1",
+      finish: "stop",
+      time: { created: 3100, completed: 4000 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.endTime).toBe(4000)
+    expect(tracer.spans[1]!.attributes["interaction.total_messages"]).toBe(3)
+  })
+
+  test("interaction waits for a late errored assistant completion after session termination", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1200, ctx)
+    handleMessagePartUpdated(makeTextPartUpdated("partial output"), ctx)
+
+    handleSessionError(makeSessionError("ses_1", { name: "NetworkError" }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(false)
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_1",
+      parentID: "user_1",
+      error: { name: "NetworkError" },
+      time: { created: 1200, completed: 2500 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.endTime).toBe(2500)
+    expect(tracer.spans[1]!.status).toEqual({ code: SpanStatusCode.ERROR, message: "NetworkError" })
+    expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("partial output")
+    expect(ctx.pendingAssistantInteractions.size).toBe(0)
   })
 
   test("subagent interaction span carries the final assistant output", () => {
     const { ctx, tracer } = makeCtx("proj_test", [], ["llm"])
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleSessionCreated(makeSessionCreated("ses_child", 1100, "ses_parent"), ctx)
-    handleRunStarted("user_child", "ses_child", "review", "review", "anthropic/claude", 1200, ctx)
+    handleInteractionStarted("user_child", "ses_child", "review", "review", "anthropic/claude", 1200, ctx)
     handleMessagePartUpdated(makeTextPartUpdated("subagent result", "ses_child"), ctx)
     handleMessageUpdated(makeAssistantMessageUpdated({
       id: "msg_1",
@@ -380,8 +489,65 @@ describe("run spans", () => {
       sessionID: "ses_child",
       mode: "review",
     }), ctx)
-    expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("subagent result")
-    expect(tracer.spans[1]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
+    expect(tracer.spans[3]!.attributes[OUTPUT_VALUE]).toBe("subagent result")
+    expect(tracer.spans[3]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
+  })
+
+  test("queued interactions share one run and retain distinct completion times", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "first", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_2", "ses_1", "build", "second", "anthropic/claude", 1100, ctx)
+    handleMessagePartUpdated(makeTextPartUpdated("first response", "ses_1", "msg_1"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_1",
+      parentID: "user_1",
+      cost: 0.01,
+      finish: "stop",
+      time: { created: 1200, completed: 2000 },
+    }), ctx)
+    handleMessagePartUpdated(makeTextPartUpdated("second response", "ses_1", "msg_2"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_2",
+      parentID: "user_2",
+      cost: 0.02,
+      finish: "stop",
+      time: { created: 2100, completed: 3000 },
+      tokens: { input: 200, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
+    }), ctx)
+
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[0])
+    expect(tracer.spans[0]!.ended).toBe(false)
+    expect(tracer.spans[1]!.endTime).toBe(2000)
+    expect(tracer.spans[2]!.endTime).toBe(3000)
+
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(tracer.spans.every((span) => span.ended)).toBe(true)
+    expect(tracer.spans[0]!.attributes["run.total_interactions"]).toBe(2)
+    expect(tracer.spans[0]!.attributes["interaction.count"]).toBeUndefined()
+    expect(tracer.spans[0]!.attributes[INPUT_MIME_TYPE]).toBe(MimeType.JSON)
+    expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.JSON)
+    expect(JSON.parse(tracer.spans[0]!.attributes[INPUT_VALUE] as string)).toEqual({
+      interactions: [
+        { id: "user_1", input: "first" },
+        { id: "user_2", input: "second" },
+      ],
+    })
+    expect(JSON.parse(tracer.spans[0]!.attributes[OUTPUT_VALUE] as string)).toEqual({
+      interactions: [
+        { id: "user_1", output: "first response" },
+        { id: "user_2", output: "second response" },
+      ],
+    })
+    expect(tracer.spans[1]!.attributes["interaction.total_tokens"]).toBe(150)
+    expect(tracer.spans[1]!.attributes["interaction.total_cost_usd"]).toBe(0.01)
+    expect(tracer.spans[2]!.attributes["interaction.total_tokens"]).toBe(300)
+    expect(tracer.spans[2]!.attributes["interaction.total_cost_usd"]).toBe(0.02)
+    expect(ctx.activeRunSpans.size).toBe(0)
+    expect(ctx.interactionSpans.size).toBe(0)
+    expect(ctx.interactionTotals.size).toBe(0)
   })
 })
 
@@ -504,22 +670,22 @@ describe("tool spans", () => {
     expect(tracer.spans[0]!.status.code).toBe(SpanStatusCode.OK)
   })
 
-  test("tool span is parented to the active run span when available", () => {
+  test("tool span is parented to the active interaction when available", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("running", { sessionID: "ses_1" }), ctx)
-    expect(tracer.spans).toHaveLength(2)
-    expect(tracer.spans[1]!.name).toBe("opencode.tool.bash")
-    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[2]!.name).toBe("opencode.tool.bash")
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[1])
   })
 
-  test("out-of-order tool span is parented to the active run span when available", () => {
+  test("out-of-order tool span is parented to the active interaction when available", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("completed", { sessionID: "ses_1", startMs: 500, endMs: 1500 }), ctx)
-    expect(tracer.spans).toHaveLength(2)
-    expect(tracer.spans[1]!.name).toBe("opencode.tool.bash")
-    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[2]!.name).toBe("opencode.tool.bash")
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[1])
   })
 })
 
@@ -654,13 +820,13 @@ describe("message (LLM) spans", () => {
     expect(ctx.messageSpans.size).toBe(mapSizeBefore)
   })
 
-  test("message span is parented to the active run span when available", () => {
+  test("message span is parented to the active interaction when available", () => {
     const { ctx, tracer } = makeCtx()
-    handleRunStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
-    expect(tracer.spans).toHaveLength(2)
-    expect(tracer.spans[1]!.name).toBe("opencode.llm")
-    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[2]!.name).toBe("opencode.llm")
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[1])
   })
 })
 
@@ -818,14 +984,14 @@ describe("OPENCODE_DISABLE_TRACES=tool", () => {
 
   test("subagent interaction falls back to the parent interaction", () => {
     const { ctx, tracer } = makeCtx("proj_test", [], ["tool"])
-    handleRunStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("running", {
       sessionID: "ses_parent",
       tool: "task",
       input: { subagent_type: "review" },
       metadata: { parentSessionId: "ses_parent", sessionId: "ses_child" },
     }), ctx)
-    handleRunStarted(
+    handleInteractionStarted(
       "user_child",
       "ses_child",
       "review",
@@ -836,8 +1002,9 @@ describe("OPENCODE_DISABLE_TRACES=tool", () => {
       ctx.pendingSubagentRuns.get("ses_child")!,
     )
 
-    expect(tracer.spans).toHaveLength(2)
-    expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
+    expect(tracer.spans).toHaveLength(4)
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[1])
+    expect(tracer.spans[3]!.parentSpan).toBe(tracer.spans[2])
   })
 
   test("tool.duration histogram still records on completion", () => {
