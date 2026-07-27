@@ -1,0 +1,22 @@
+tests/handlers/spans.test.ts
+  s_949b1a13397e37::t_6d04886aa20e67 424-441
+src/handlers/session.ts
+  s_949b1a13397e37::t_6d04886aa20e67 112
+  s_949b1a13397e37::t_ac9442ff3888c0 113-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c39cd0a2268d9cb892fe4e9c1adf296979641951",
+  "prompts": {},
+  "sessions": {
+    "s_949b1a13397e37": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa3af-f1b3-7bf3-a411-953c38d194e5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    }
+  }
+}
