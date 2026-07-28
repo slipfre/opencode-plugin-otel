@@ -1,0 +1,22 @@
+src/handlers/message.ts
+  s_1555932413b40e::t_1ab2bcb2a5fcd8 393
+tests/handlers/spans.test.ts
+  s_1555932413b40e::t_1ab2bcb2a5fcd8 783-796
+  s_1555932413b40e::t_9b7279d4d10df0 797-798
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c0bc3e36ee3eb549b1ba895bf54a707c7f64a81f",
+  "prompts": {},
+  "sessions": {
+    "s_1555932413b40e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-4df2-7d11-bbff-ef506715dafa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
