@@ -1,0 +1,42 @@
+tests/ai-telemetry.test.ts
+  s_f1528ea77e20b5::t_bffe0bdaffb3bc 277-317,319-323
+  s_f1528ea77e20b5::t_a44820c3271607 209,213-215,327,331-335,351,355,357,375,379-380,398,403-404,416,420-423
+  s_f1528ea77e20b5::t_29c60b34a31025 26,62,71,74-76,245,249
+  s_f1528ea77e20b5::t_e4a39ebe97f218 318
+  s_f1528ea77e20b5::t_3b42f17c3fa625 24,40-61,63-70,72-73,77-80,105,112,117,135,141,146,151
+src/index.ts
+  s_f1528ea77e20b5::t_29c60b34a31025 132
+  s_f1528ea77e20b5::t_e4a39ebe97f218 131,133-134,183
+src/types.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 114,116-117,119-121,151
+  s_f1528ea77e20b5::t_29c60b34a31025 13-15,118
+  s_f1528ea77e20b5::t_0916fd9469cfe5 110-113
+  s_f1528ea77e20b5::t_1e37ab45dea4f1 115
+src/ai-telemetry.ts
+  s_f1528ea77e20b5::t_97ccc0d95c4cec 103
+  s_f1528ea77e20b5::t_0916fd9469cfe5 79-83,88-89,93,98-101,104
+  s_f1528ea77e20b5::t_29c60b34a31025 28,90-92,94-97
+  s_f1528ea77e20b5::t_e4a39ebe97f218 87,102
+tests/helpers.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 249,251-252
+  s_f1528ea77e20b5::t_29c60b34a31025 250
+src/handlers/chat-headers.ts
+  s_f1528ea77e20b5::t_0916fd9469cfe5 21-23,30-32
+  s_f1528ea77e20b5::t_29c60b34a31025 3,5,24-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b78aa9b9ae135a95d8126b04294245a0703e3334",
+  "prompts": {},
+  "sessions": {
+    "s_f1528ea77e20b5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa2dd-0368-7be3-a283-bc584c57fd1a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
