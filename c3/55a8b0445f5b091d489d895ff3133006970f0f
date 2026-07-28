@@ -1,0 +1,37 @@
+tests/ai-telemetry.test.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 312
+  s_f1528ea77e20b5::t_bffe0bdaffb3bc 271-311,313-317
+  s_f1528ea77e20b5::t_3b42f17c3fa625 24,39-76,101,108,113,131,137,142,147
+  s_f1528ea77e20b5::t_a44820c3271607 205,209-211,321,325-329,345,349,351,369,373-374,392,397-398,410,414-417
+src/types.ts
+  s_f1528ea77e20b5::t_0916fd9469cfe5 107-110
+  s_f1528ea77e20b5::t_e4a39ebe97f218 111,113-118,148
+  s_f1528ea77e20b5::t_1e37ab45dea4f1 112
+src/ai-telemetry.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 87,90,96
+  s_f1528ea77e20b5::t_0916fd9469cfe5 79-83,88-89,91-95,98
+  s_f1528ea77e20b5::t_97ccc0d95c4cec 97
+src/index.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 131-134,183
+tests/helpers.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 249-252
+src/handlers/chat-headers.ts
+  s_f1528ea77e20b5::t_e4a39ebe97f218 26
+  s_f1528ea77e20b5::t_0916fd9469cfe5 20-25,27-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c355a8b0445f5b091d489d895ff3133006970f0f",
+  "prompts": {},
+  "sessions": {
+    "s_f1528ea77e20b5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa2dd-0368-7be3-a283-bc584c57fd1a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
