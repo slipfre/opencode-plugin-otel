@@ -1,7 +1,8 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Config, Plugin } from "@opencode-ai/plugin"
 import { SeverityNumber } from "@opentelemetry/api-logs"
 import { logs } from "@opentelemetry/api-logs"
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
+import { USER_ID } from "@arizeai/openinference-semantic-conventions"
 import pkg from "../package.json" with { type: "json" }
 import type {
   EventSessionCreated,
@@ -34,6 +35,7 @@ import { handleChatHeaders } from "./handlers/chat-headers.ts"
 import { agentAttrs, getSessionAgentMeta, setBoundedMap } from "./util.ts"
 import type { SessionTotals } from "./types.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
+import { createUserIDResolver } from "./user-id.ts"
 
 const PLUGIN_VERSION: string = (pkg as { version?: string }).version ?? "unknown"
 
@@ -66,6 +68,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     spanAttributeCountLimit: config.spanAttributeCountLimit,
     metricPrefix: config.metricPrefix,
     headersHelperSet: !!config.otlpHeadersHelper,
+    userIDEnabled: config.userIDEnabled,
+    userIDTimeout: config.userIDTimeout,
+    userIDRetryCount: config.userIDRetryCount,
+    userIDCooldown: config.userIDCooldown,
   })
 
   await log("debug", "config loaded", {
@@ -185,6 +191,36 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     activeMessageSpans,
     llmTelemetryOutputs,
   }
+  const userIDResolver = createUserIDResolver({
+    authHeader: config.userIDAuthHeader,
+    endpoint: config.userIDEndpoint,
+    log,
+    requestTimeoutMs: config.userIDTimeout,
+    retryCount: config.userIDRetryCount,
+    cooldownMs: config.userIDCooldown,
+  })
+  let configuredProviders: Config["provider"]
+
+  const updateUserID = async () => {
+    const userID = await userIDResolver.resolve(configuredProviders)
+    if (ctx.commonAttrs[USER_ID] === userID) return
+    ctx.commonAttrs = {
+      ...commonAttrs,
+      [USER_ID]: userID,
+    }
+    await log("debug", "user ID updated", {
+      resolved: userID !== "unknown",
+    })
+  }
+
+  const updateUserIDInBackground = () => {
+    if (!config.userIDEnabled) return
+    void updateUserID().catch((error) => {
+      void log("warn", "user ID update failed", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
 
   const unregisterAiTelemetry = registerAiTelemetry(ctx)
 
@@ -241,6 +277,9 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     },
 
     config: async (cfg) => {
+      configuredProviders = cfg.provider
+      if (config.userIDEnabled) await updateUserID()
+
       if (cfg.logLevel) {
         const next = resolveLogLevel(cfg.logLevel, minLevel)
         if (next !== minLevel) {
@@ -253,10 +292,12 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     },
 
     "chat.headers": safe("chat.headers", async (input, output) => {
+      updateUserIDInBackground()
       handleChatHeaders(input, output, ctx)
     }),
 
     "chat.message": safe("chat.message", async (input, output) => {
+      updateUserIDInBackground()
       const agent = input.agent ?? "unknown"
       const startTime = Date.now()
       const existingTotals = sessionTotals.get(input.sessionID)
@@ -323,12 +364,13 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           model: input.model
             ? `${input.model.providerID}/${input.model.modelID}`
             : "unknown",
-          ...commonAttrs,
+          ...ctx.commonAttrs,
         },
       })
     }),
 
     event: safe("event", async ({ event }) => {
+      updateUserIDInBackground()
       switch (event.type) {
         case "session.created":
           await handleSessionCreated(event as EventSessionCreated, ctx)

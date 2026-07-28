@@ -20,6 +20,7 @@ import {
   SemanticConventions,
   SESSION_ID,
   TOOL_NAME,
+  USER_ID,
 } from "@arizeai/openinference-semantic-conventions"
 import type { Span } from "@opentelemetry/api"
 import { handleSessionCreated, handleSessionIdle, handleSessionError, handleInteractionStarted } from "../../src/handlers/session.ts"
@@ -130,6 +131,21 @@ function makeTextPartUpdated(text: string, sessionID = "ses_1", messageID = "msg
 }
 
 describe("run and interaction spans", () => {
+  test("all span types include the resolved user ID", () => {
+    const { ctx, tracer } = makeCtx("proj_test", [], [], true, { [USER_ID]: "user-1" })
+
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running"), ctx)
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
+
+    expect(tracer.spans.map((span) => span.attributes[USER_ID])).toEqual([
+      "user-1",
+      "user-1",
+      "user-1",
+      "user-1",
+    ])
+  })
+
   test("does not start a trace span on session.created", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1", 5000), ctx)

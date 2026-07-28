@@ -62,6 +62,12 @@ describe("loadConfig", () => {
   const vars = [
     "OPENCODE_ENABLE_TELEMETRY",
     "OPENCODE_OTLP_ENDPOINT",
+    "OPENCODE_USER_ID_ENABLED",
+    "OPENCODE_USER_ID_ENDPOINT",
+    "OPENCODE_USER_ID_AUTH_HEADER",
+    "OPENCODE_USER_ID_TIMEOUT",
+    "OPENCODE_USER_ID_RETRY_COUNT",
+    "OPENCODE_USER_ID_COOLDOWN",
     "OPENCODE_OTLP_PROTOCOL",
     "OPENCODE_OTLP_METRICS_INTERVAL",
     "OPENCODE_OTLP_LOGS_INTERVAL",
@@ -89,6 +95,12 @@ describe("loadConfig", () => {
     expect(cfg.enabled).toBe(false)
     expect(cfg.logsEnabled).toBe(true)
     expect(cfg.endpoint).toBe("http://localhost:4317")
+    expect(cfg.userIDEnabled).toBe(true)
+    expect(cfg.userIDEndpoint).toBe("queryUserByToken")
+    expect(cfg.userIDAuthHeader).toBeUndefined()
+    expect(cfg.userIDTimeout).toBe(3000)
+    expect(cfg.userIDRetryCount).toBe(2)
+    expect(cfg.userIDCooldown).toBe(300000)
     expect(cfg.protocol).toBe("grpc")
     expect(cfg.metricsInterval).toBe(60000)
     expect(cfg.logsInterval).toBe(5000)
@@ -108,6 +120,48 @@ describe("loadConfig", () => {
   test("reads custom endpoint", () => {
     process.env["OPENCODE_OTLP_ENDPOINT"] = "http://collector:4317"
     expect(loadConfig().endpoint).toBe("http://collector:4317")
+  })
+
+  test("reads user ID endpoint", () => {
+    process.env["OPENCODE_USER_ID_ENDPOINT"] = "https://identity.example.com/queryUserByToken"
+    expect(loadConfig().userIDEndpoint).toBe("https://identity.example.com/queryUserByToken")
+  })
+
+  test("reads user ID auth header", () => {
+    process.env["OPENCODE_USER_ID_AUTH_HEADER"] = "blackbox-secret"
+    expect(loadConfig().userIDAuthHeader).toBe("blackbox-secret")
+  })
+
+  test("reads user ID settings", () => {
+    process.env["OPENCODE_USER_ID_ENABLED"] = "false"
+    process.env["OPENCODE_USER_ID_TIMEOUT"] = "1500"
+    process.env["OPENCODE_USER_ID_RETRY_COUNT"] = "4"
+    process.env["OPENCODE_USER_ID_COOLDOWN"] = "60000"
+    const cfg = loadConfig()
+    expect(cfg.userIDEnabled).toBe(false)
+    expect(cfg.userIDTimeout).toBe(1500)
+    expect(cfg.userIDRetryCount).toBe(4)
+    expect(cfg.userIDCooldown).toBe(60000)
+  })
+
+  test("accepts zero user ID retries and cooldown", () => {
+    process.env["OPENCODE_USER_ID_RETRY_COUNT"] = "0"
+    process.env["OPENCODE_USER_ID_COOLDOWN"] = "0"
+    const cfg = loadConfig()
+    expect(cfg.userIDRetryCount).toBe(0)
+    expect(cfg.userIDCooldown).toBe(0)
+  })
+
+  test("falls back for invalid user ID settings", () => {
+    process.env["OPENCODE_USER_ID_ENABLED"] = "sometimes"
+    process.env["OPENCODE_USER_ID_TIMEOUT"] = "0"
+    process.env["OPENCODE_USER_ID_RETRY_COUNT"] = "11"
+    process.env["OPENCODE_USER_ID_COOLDOWN"] = "-1"
+    const cfg = loadConfig()
+    expect(cfg.userIDEnabled).toBe(true)
+    expect(cfg.userIDTimeout).toBe(3000)
+    expect(cfg.userIDRetryCount).toBe(2)
+    expect(cfg.userIDCooldown).toBe(300000)
   })
 
   test("reads HTTP/protobuf protocol", () => {
@@ -353,6 +407,12 @@ describe("loadConfig options", () => {
   const vars = [
     "OPENCODE_ENABLE_TELEMETRY",
     "OPENCODE_OTLP_ENDPOINT",
+    "OPENCODE_USER_ID_ENABLED",
+    "OPENCODE_USER_ID_ENDPOINT",
+    "OPENCODE_USER_ID_AUTH_HEADER",
+    "OPENCODE_USER_ID_TIMEOUT",
+    "OPENCODE_USER_ID_RETRY_COUNT",
+    "OPENCODE_USER_ID_COOLDOWN",
     "OPENCODE_OTLP_PROTOCOL",
     "OPENCODE_OTLP_METRICS_INTERVAL",
     "OPENCODE_OTLP_LOGS_INTERVAL",
@@ -388,6 +448,37 @@ describe("loadConfig options", () => {
   test("option endpoint overrides env var", () => {
     process.env["OPENCODE_OTLP_ENDPOINT"] = "http://from-env:4317"
     expect(loadConfig({ endpoint: "http://from-option:4317" }).endpoint).toBe("http://from-option:4317")
+  })
+
+  test("option user ID endpoint overrides env var", () => {
+    process.env["OPENCODE_USER_ID_ENDPOINT"] = "https://env.example.com/queryUserByToken"
+    expect(loadConfig({
+      userIDEndpoint: "https://option.example.com/queryUserByToken",
+    }).userIDEndpoint).toBe("https://option.example.com/queryUserByToken")
+  })
+
+  test("option user ID auth header overrides env var", () => {
+    process.env["OPENCODE_USER_ID_AUTH_HEADER"] = "env-secret"
+    expect(loadConfig({
+      userIDAuthHeader: "option-secret",
+    }).userIDAuthHeader).toBe("option-secret")
+  })
+
+  test("user ID options override env vars", () => {
+    process.env["OPENCODE_USER_ID_ENABLED"] = "true"
+    process.env["OPENCODE_USER_ID_TIMEOUT"] = "3000"
+    process.env["OPENCODE_USER_ID_RETRY_COUNT"] = "2"
+    process.env["OPENCODE_USER_ID_COOLDOWN"] = "300000"
+    const cfg = loadConfig({
+      userIDEnabled: false,
+      userIDTimeout: 1000,
+      userIDRetryCount: 0,
+      userIDCooldown: 10000,
+    })
+    expect(cfg.userIDEnabled).toBe(false)
+    expect(cfg.userIDTimeout).toBe(1000)
+    expect(cfg.userIDRetryCount).toBe(0)
+    expect(cfg.userIDCooldown).toBe(10000)
   })
 
   test("env endpoint used when option is absent", () => {

@@ -111,6 +111,12 @@ The environment variables (set them in your shell profile — `~/.zshrc`, `~/.ba
 |----------|---------|-------------|
 | `OPENCODE_ENABLE_TELEMETRY` | *(unset)* | Set to any non-empty value to enable the plugin |
 | `OPENCODE_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP collector endpoint. Always include a URL scheme. For `grpc`, use the collector URL (for example `http://localhost:4317` or `grpc://collector:4317`). For `http/protobuf` and `http/json`, use the base URL and the plugin will append `/v1/traces`, `/v1/metrics`, and `/v1/logs`. |
+| `OPENCODE_USER_ID_ENABLED` | `true` | Enables resolving `user.id` from the first configured provider API key. Accepts `true`, `false`, `1`, or `0`. |
+| `OPENCODE_USER_ID_ENDPOINT` | `queryUserByToken` | Endpoint used to resolve `user.id` from the first configured provider API key. Set this to a full URL in production. |
+| `OPENCODE_USER_ID_AUTH_HEADER` | *(unset)* | Value sent in the `X-Blackbox-Auth` header when querying the user ID endpoint. Keep this secret out of version control. |
+| `OPENCODE_USER_ID_TIMEOUT` | `3000` | Timeout in milliseconds for each `queryUserByToken` request. |
+| `OPENCODE_USER_ID_RETRY_COUNT` | `2` | Number of retries after the initial request fails. Valid range: `0` to `10`. |
+| `OPENCODE_USER_ID_COOLDOWN` | `300000` | Cooldown in milliseconds after all attempts fail. The next plugin event after this period triggers a background retry. Set to `0` to disable the cooldown. |
 | `OPENCODE_OTLP_PROTOCOL` | `grpc` | OTLP transport protocol: `grpc`, `http/protobuf`, or `http/json` |
 | `OPENCODE_OTLP_METRICS_INTERVAL` | `60000` | Metrics export interval in milliseconds |
 | `OPENCODE_OTLP_LOGS_INTERVAL` | `5000` | Logs export interval in milliseconds |
@@ -155,6 +161,12 @@ Option keys mirror the resolved config and map to the environment variables:
 | `enabled` | `OPENCODE_ENABLE_TELEMETRY` |
 | `logsEnabled` | `OPENCODE_DISABLE_LOGS` (inverted) |
 | `endpoint` | `OPENCODE_OTLP_ENDPOINT` |
+| `userIDEnabled` | `OPENCODE_USER_ID_ENABLED` |
+| `userIDEndpoint` | `OPENCODE_USER_ID_ENDPOINT` |
+| `userIDAuthHeader` | `OPENCODE_USER_ID_AUTH_HEADER` |
+| `userIDTimeout` | `OPENCODE_USER_ID_TIMEOUT` |
+| `userIDRetryCount` | `OPENCODE_USER_ID_RETRY_COUNT` |
+| `userIDCooldown` | `OPENCODE_USER_ID_COOLDOWN` |
 | `protocol` | `OPENCODE_OTLP_PROTOCOL` |
 | `metricsInterval` | `OPENCODE_OTLP_METRICS_INTERVAL` |
 | `logsInterval` | `OPENCODE_OTLP_LOGS_INTERVAL` |

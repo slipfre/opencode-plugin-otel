@@ -9,12 +9,22 @@ export const TRACE_TYPES = ["session", "llm", "tool"] as const
 const VALID_TEMPORALITIES: ReadonlySet<MetricsTemporality> = new Set<MetricsTemporality>(["cumulative", "delta", "lowmemory"])
 const TRACE_DISABLE_ALL_VALUES = new Set(["all", "*", "true", "1"])
 const DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT = 4096
+const DEFAULT_USER_ID_TIMEOUT = 3000
+const DEFAULT_USER_ID_RETRY_COUNT = 2
+const DEFAULT_USER_ID_COOLDOWN = 5 * 60 * 1000
+const MAX_USER_ID_RETRY_COUNT = 10
 
 /** Configuration values resolved from `OPENCODE_*` environment variables. */
 export type PluginConfig = {
   enabled: boolean
   logsEnabled: boolean
   endpoint: string
+  userIDEnabled: boolean
+  userIDEndpoint: string
+  userIDAuthHeader: string | undefined
+  userIDTimeout: number
+  userIDRetryCount: number
+  userIDCooldown: number
   protocol: "grpc" | "http/protobuf" | "http/json"
   metricsInterval: number
   logsInterval: number
@@ -59,6 +69,12 @@ export type OtelPluginOptions = {
   enabled?: boolean
   logsEnabled?: boolean
   endpoint?: string
+  userIDEnabled?: boolean
+  userIDEndpoint?: string
+  userIDAuthHeader?: string
+  userIDTimeout?: number
+  userIDRetryCount?: number
+  userIDCooldown?: number
   protocol?: "grpc" | "http/protobuf" | "http/json"
   metricsInterval?: number
   logsInterval?: number
@@ -90,6 +106,17 @@ function pickPositiveInt(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
+function pickNonNegativeInt(value: unknown, maximum = Number.MAX_SAFE_INTEGER): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= maximum ? value : undefined
+}
+
+function pickBooleanString(value: unknown): boolean | undefined {
+  if (typeof value !== "string") return
+  const normalized = value.trim().toLowerCase()
+  if (normalized === "true" || normalized === "1") return true
+  if (normalized === "false" || normalized === "0") return false
+}
+
 function pickStringList(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
   return value.filter((entry): entry is string => typeof entry === "string")
@@ -114,6 +141,13 @@ export function parseEnvInt(key: string, fallback: number): number {
   if (!/^[1-9]\d*$/.test(raw)) return fallback
   const n = Number(raw)
   return Number.isSafeInteger(n) ? n : fallback
+}
+
+function parseEnvNonNegativeInt(key: string, fallback: number, maximum = Number.MAX_SAFE_INTEGER): number {
+  const raw = process.env[key]
+  if (!raw || !/^\d+$/.test(raw)) return fallback
+  const value = Number(raw)
+  return Number.isSafeInteger(value) && value <= maximum ? value : fallback
 }
 
 /** Returns `true` when the environment variable is present and non-empty. */
@@ -198,6 +232,20 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
     enabled: pickBoolean(resolvedOptions.enabled) ?? hasNonEmptyEnv("OPENCODE_ENABLE_TELEMETRY"),
     logsEnabled: pickBoolean(resolvedOptions.logsEnabled) ?? !hasNonEmptyEnv("OPENCODE_DISABLE_LOGS"),
     endpoint: pickString(resolvedOptions.endpoint) ?? process.env["OPENCODE_OTLP_ENDPOINT"] ?? "http://localhost:4317",
+    userIDEnabled: pickBoolean(resolvedOptions.userIDEnabled)
+      ?? pickBooleanString(process.env["OPENCODE_USER_ID_ENABLED"])
+      ?? true,
+    userIDEndpoint: pickString(resolvedOptions.userIDEndpoint)
+      ?? process.env["OPENCODE_USER_ID_ENDPOINT"]
+      ?? "queryUserByToken",
+    userIDAuthHeader: pickString(resolvedOptions.userIDAuthHeader)
+      ?? process.env["OPENCODE_USER_ID_AUTH_HEADER"],
+    userIDTimeout: pickPositiveInt(resolvedOptions.userIDTimeout)
+      ?? parseEnvInt("OPENCODE_USER_ID_TIMEOUT", DEFAULT_USER_ID_TIMEOUT),
+    userIDRetryCount: pickNonNegativeInt(resolvedOptions.userIDRetryCount, MAX_USER_ID_RETRY_COUNT)
+      ?? parseEnvNonNegativeInt("OPENCODE_USER_ID_RETRY_COUNT", DEFAULT_USER_ID_RETRY_COUNT, MAX_USER_ID_RETRY_COUNT),
+    userIDCooldown: pickNonNegativeInt(resolvedOptions.userIDCooldown)
+      ?? parseEnvNonNegativeInt("OPENCODE_USER_ID_COOLDOWN", DEFAULT_USER_ID_COOLDOWN),
     protocol,
     metricsInterval: pickPositiveInt(resolvedOptions.metricsInterval) ?? parseEnvInt("OPENCODE_OTLP_METRICS_INTERVAL", 60000),
     logsInterval: pickPositiveInt(resolvedOptions.logsInterval) ?? parseEnvInt("OPENCODE_OTLP_LOGS_INTERVAL", 5000),
