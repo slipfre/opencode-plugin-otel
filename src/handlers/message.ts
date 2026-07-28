@@ -381,7 +381,6 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     const key = `${toolPart.sessionID}:${toolPart.callID}`
 
     if (toolPart.state.status === "running") {
-      recordLlmOutputEnd(toolPart, toolPart.state.time.start, ctx)
       const pending = ctx.pendingToolSpans.get(key)
       if (pending) {
         pending.span?.setAttributes({
@@ -391,6 +390,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
         bindSubagentRun(toolPart, pending.span, ctx)
         return
       }
+      recordLlmOutputEnd(toolPart, toolPart.state.time.start, ctx)
       const { agentName, agentType } = getSessionAgentMeta(toolPart.sessionID, ctx)
       const toolSpan = isTraceEnabled("tool", ctx)
         ? (() => {

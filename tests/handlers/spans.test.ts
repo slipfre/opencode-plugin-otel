@@ -780,6 +780,22 @@ describe("message (LLM) spans", () => {
     expect(tracer.spans.filter((span) => span.name === "opencode.tool.bash").map((span) => span.endTime)).toEqual([3000, 3500])
   })
 
+  test("restamped running updates do not move the llm handoff time", () => {
+    const { ctx, tracer } = makeCtx()
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude-3-5-sonnet", "anthropic", 1000, ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", { startMs: 1400 }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", { startMs: 2990 }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("completed", { startMs: 2990, endMs: 3000 }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({ time: { created: 1000, completed: 3100 } }), ctx)
+
+    const llmSpan = tracer.spans.find((span) => span.name === "opencode.llm")!
+    const toolSpan = tracer.spans.find((span) => span.name === "opencode.tool.bash")!
+    expect(llmSpan.endTime).toBe(1400)
+    expect(llmSpan.attributes.duration_ms).toBe(400)
+    expect(toolSpan.startTime).toBe(1400)
+    expect(toolSpan.endTime).toBe(3000)
+  })
+
   test("an older completion does not remove a newer request context", () => {
     const { ctx } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
