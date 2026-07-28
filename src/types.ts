@@ -10,6 +10,9 @@ export type Level = keyof typeof LEVELS
 /** Maximum number of entries kept in bounded correlation maps and queues. */
 export const MAX_PENDING = 500
 
+/** Temporary correlation header removed before the AI SDK calls the model provider. */
+export const LLM_TELEMETRY_REQUEST_HEADER = "x-opencode-plugin-otel-request-id"
+
 /** Structured logger forwarded to the opencode `client.app.log` API. */
 export type PluginLogger = (
   level: Level,
@@ -104,6 +107,18 @@ export type LlmRequestContext = {
   spanContext: SpanContext
 }
 
+/** Exact LLM span selected for one AI SDK generation lifecycle. */
+export type LlmTelemetryTarget = {
+  msgKey: string
+  span: Span
+}
+
+/** Request-identity bindings that route one AI SDK lifecycle to its exact LLM span. */
+export type LlmTelemetryBindings = {
+  pendingByRequestID: Map<string, LlmTelemetryTarget>
+  byLifecycleMetadata: WeakMap<object, LlmTelemetryTarget>
+}
+
 /** Shared context threaded through every event handler. */
 export type HandlerContext = {
   log: PluginLogger
@@ -133,6 +148,7 @@ export type HandlerContext = {
   messageSpans: Map<string, Span>
   messageOutputs: Map<string, string>
   llmRequestContexts: Map<string, LlmRequestContext[]>
+  llmTelemetryBindings: LlmTelemetryBindings
   tracePropagationProviders: Set<string>
   activeMessageSpans: Map<string, { messageID: string; span: Span; outputEndTime?: number }>
   llmTelemetryOutputs: Map<string, true>

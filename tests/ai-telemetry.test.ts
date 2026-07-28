@@ -21,7 +21,9 @@ import {
 } from "@arizeai/openinference-semantic-conventions"
 import type { EventMessageUpdated } from "@opencode-ai/sdk"
 import { registerAiTelemetry } from "../src/ai-telemetry.ts"
+import { handleChatHeaders } from "../src/handlers/chat-headers.ts"
 import { handleMessageUpdated, startMessageSpan } from "../src/handlers/message.ts"
+import { LLM_TELEMETRY_REQUEST_HEADER } from "../src/types.ts"
 import { makeCtx } from "./helpers.ts"
 
 type TelemetryGlobal = typeof globalThis & {
@@ -35,7 +37,47 @@ function integration(): TelemetryIntegration {
   return value
 }
 
-function startEvent(sessionID = "ses_1"): OnStartEvent {
+type TelemetryLifecycle = {
+  sessionID: string
+  headers: Record<string, string>
+  metadata: Record<string, unknown>
+}
+
+function bindTelemetryLifecycle(
+  ctx: ReturnType<typeof makeCtx>["ctx"],
+  overrides: {
+    sessionID?: string
+    parentID?: string
+    agent?: string
+    modelID?: string
+    providerID?: string
+  } = {},
+): TelemetryLifecycle {
+  const sessionID = overrides.sessionID ?? "ses_1"
+  const parentID = overrides.parentID ?? "user_1"
+  const request = ctx.llmRequestContexts.get(`${sessionID}:${parentID}`)?.at(-1)
+  if (!request) throw new Error("LLM request context not found")
+  const modelID = overrides.modelID ?? request.modelID
+  const providerID = overrides.providerID ?? request.providerID
+  const hookHeaders = { "X-Test": "value", Authorization: "Bearer test-token" }
+  handleChatHeaders(
+    {
+      sessionID,
+      agent: overrides.agent ?? request.agent,
+      model: { id: modelID, providerID } as any,
+      provider: { source: "config", info: { id: providerID }, options: {} } as any,
+      message: { id: parentID } as any,
+    },
+    { headers: hookHeaders },
+    ctx,
+  )
+  // OpenCode creates a new prepared headers object after all chat.headers hooks run.
+  // Keeping this clone in the fixture prevents object-identity correlation from passing falsely.
+  const headers = { "x-session-affinity": sessionID, ...hookHeaders }
+  return { sessionID, headers, metadata: { sessionId: sessionID } }
+}
+
+function startEvent(lifecycle: TelemetryLifecycle): OnStartEvent {
   return {
     model: { provider: "anthropic", modelId: "claude" },
     system: "You are concise.",
@@ -60,19 +102,19 @@ function startEvent(sessionID = "ses_1"): OnStartEvent {
     seed: undefined,
     maxRetries: 0,
     timeout: undefined,
-    headers: { "x-test": "value" },
+    headers: lifecycle.headers,
     providerOptions: { anthropic: { thinking: { type: "enabled", budgetTokens: 1024 } } },
     stopWhen: undefined,
     output: undefined,
     abortSignal: undefined,
     include: undefined,
     functionId: "session.llm",
-    metadata: { sessionId: sessionID },
+    metadata: lifecycle.metadata,
     experimental_context: undefined,
   } as unknown as OnStartEvent
 }
 
-function stepStartEvent(sessionID = "ses_1", stepNumber = 0): OnStepStartEvent {
+function stepStartEvent(lifecycle: TelemetryLifecycle, stepNumber = 0): OnStepStartEvent {
   return {
     stepNumber,
     model: { provider: "anthropic", modelId: "claude" },
@@ -90,23 +132,23 @@ function stepStartEvent(sessionID = "ses_1", stepNumber = 0): OnStepStartEvent {
     steps: [],
     providerOptions: { anthropic: { thinking: { type: "enabled", budgetTokens: 1024 } } },
     timeout: undefined,
-    headers: { "X-Test": "value", Authorization: "Bearer test-token", "x-optional": undefined },
+    headers: lifecycle.headers,
     stopWhen: undefined,
     output: undefined,
     abortSignal: undefined,
     include: undefined,
     functionId: "session.llm",
-    metadata: { sessionId: sessionID },
+    metadata: lifecycle.metadata,
     experimental_context: undefined,
   } as unknown as OnStepStartEvent
 }
 
-function stepFinishEvent(sessionID = "ses_1", stepNumber = 0): OnStepFinishEvent {
+function stepFinishEvent(lifecycle: TelemetryLifecycle, stepNumber = 0): OnStepFinishEvent {
   return {
     stepNumber,
     model: { provider: "anthropic", modelId: "claude" },
     functionId: "session.llm",
-    metadata: { sessionId: sessionID },
+    metadata: lifecycle.metadata,
     experimental_context: undefined,
     content: [
       { type: "reasoning", text: "thinking" },
@@ -164,12 +206,13 @@ describe("AI SDK telemetry integration", () => {
   test("adds OpenInference input and output to the active llm span", async () => {
     const { ctx, tracer } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
+    const lifecycle = bindTelemetryLifecycle(ctx)
     const unregister = registerAiTelemetry(ctx)
 
     try {
-      await integration().onStart?.(startEvent())
-      await integration().onStepStart?.(stepStartEvent())
-      await integration().onStepFinish?.(stepFinishEvent())
+      await integration().onStart?.(startEvent(lifecycle))
+      await integration().onStepStart?.(stepStartEvent(lifecycle))
+      await integration().onStepFinish?.(stepFinishEvent(lifecycle))
 
       const span = tracer.spans[0]!
       const input = JSON.parse(String(span.attributes[INPUT_VALUE]))
@@ -199,9 +242,11 @@ describe("AI SDK telemetry integration", () => {
       expect(span.attributes[`${LLM_INPUT_MESSAGES}.1.${MESSAGE_CONTENTS}.0.${MESSAGE_CONTENT_TYPE}`]).toBe("text")
       expect(span.attributes[`${LLM_INPUT_MESSAGES}.1.${MESSAGE_CONTENTS}.0.${MESSAGE_CONTENT_TEXT}`]).toBe("hello")
       expect(JSON.parse(String(span.attributes["http.request.headers"]))).toEqual({
+        "x-session-affinity": "ses_1",
         "x-test": "value",
         authorization: "Bearer test-token",
       })
+      expect(lifecycle.headers[LLM_TELEMETRY_REQUEST_HEADER]).toBeUndefined()
       expect(span.attributes["http.request.header.x-test"]).toBeUndefined()
 
       expect(span.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.JSON)
@@ -229,16 +274,65 @@ describe("AI SDK telemetry integration", () => {
     }
   })
 
-  test("keeps only the current AI SDK call payload", async () => {
+  test("does not let a concurrent title generation overwrite the main llm payload", async () => {
     const { ctx, tracer } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
+    const main = bindTelemetryLifecycle(ctx)
+    const title = bindTelemetryLifecycle(ctx, { agent: "title" })
     const unregister = registerAiTelemetry(ctx)
 
     try {
-      await integration().onStepStart?.(stepStartEvent("ses_1", 0))
-      await integration().onStepFinish?.(stepFinishEvent("ses_1", 0))
-      await integration().onStepStart?.(stepStartEvent("ses_1", 1))
-      await integration().onStepFinish?.(stepFinishEvent("ses_1", 1))
+      await integration().onStart?.(startEvent(main))
+      await integration().onStart?.({
+        ...startEvent(title),
+        maxOutputTokens: 32,
+      } as OnStartEvent)
+
+      await integration().onStepStart?.(stepStartEvent(main))
+      await integration().onStepStart?.({
+        ...stepStartEvent(title),
+        system: "Generate a title.",
+        messages: [{ role: "user", content: "secret title prompt" }],
+      } as OnStepStartEvent)
+
+      await integration().onStepFinish?.(stepFinishEvent(main))
+      const titleFinish = stepFinishEvent(title)
+      await integration().onStepFinish?.({
+        ...titleFinish,
+        content: [{ type: "text", text: "Secret title" }],
+        text: "Secret title",
+        response: {
+          ...titleFinish.response,
+          messages: [{ role: "assistant", content: [{ type: "text", text: "Secret title" }] }],
+        },
+      } as OnStepFinishEvent)
+
+      const span = tracer.spans[0]!
+      const parameters = JSON.parse(String(span.attributes[LLM_INVOCATION_PARAMETERS]))
+      const input = JSON.parse(String(span.attributes[INPUT_VALUE]))
+      const output = JSON.parse(String(span.attributes[OUTPUT_VALUE]))
+      expect(parameters.maxOutputTokens).toBe(4096)
+      expect(input[1].content[0].text).toBe("hello")
+      expect(output[0].content[1].text).toBe("hello back")
+      expect(JSON.stringify(span.attributes)).not.toContain("secret title")
+      expect(ctx.llmTelemetryBindings.byLifecycleMetadata.has(title.metadata)).toBe(false)
+    } finally {
+      unregister()
+    }
+  })
+
+  test("keeps only the current AI SDK call payload", async () => {
+    const { ctx, tracer } = makeCtx()
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
+    const lifecycle = bindTelemetryLifecycle(ctx)
+    const unregister = registerAiTelemetry(ctx)
+
+    try {
+      await integration().onStart?.(startEvent(lifecycle))
+      await integration().onStepStart?.(stepStartEvent(lifecycle, 0))
+      await integration().onStepFinish?.(stepFinishEvent(lifecycle, 0))
+      await integration().onStepStart?.(stepStartEvent(lifecycle, 1))
+      await integration().onStepFinish?.(stepFinishEvent(lifecycle, 1))
 
       const input = JSON.parse(String(tracer.spans[0]!.attributes[INPUT_VALUE]))
       const output = JSON.parse(String(tracer.spans[0]!.attributes[OUTPUT_VALUE]))
@@ -254,11 +348,13 @@ describe("AI SDK telemetry integration", () => {
   test("restores OpenAI OAuth instructions as a system message", async () => {
     const { ctx, tracer } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "gpt-5", "openai", 1000, ctx)
+    const lifecycle = bindTelemetryLifecycle(ctx)
     const unregister = registerAiTelemetry(ctx)
 
     try {
+      await integration().onStart?.(startEvent(lifecycle))
       await integration().onStepStart?.({
-        ...stepStartEvent(),
+        ...stepStartEvent(lifecycle),
         system: undefined,
         providerOptions: { openai: { instructions: "You are OpenCode." } },
       } as OnStepStartEvent)
@@ -276,10 +372,12 @@ describe("AI SDK telemetry integration", () => {
     const { ctx, tracer } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
     ctx.messageOutputs.set("ses_1:msg_1", "normalized fallback")
+    const lifecycle = bindTelemetryLifecycle(ctx)
     const unregister = registerAiTelemetry(ctx)
 
     try {
-      await integration().onStepFinish?.(stepFinishEvent())
+      await integration().onStart?.(startEvent(lifecycle))
+      await integration().onStepFinish?.(stepFinishEvent(lifecycle))
       handleMessageUpdated(assistantCompleted(), ctx)
 
       const span = tracer.spans[0]!
@@ -297,11 +395,13 @@ describe("AI SDK telemetry integration", () => {
     const first = makeCtx()
     const second = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, first.ctx)
+    const lifecycle = bindTelemetryLifecycle(first.ctx)
     const unregisterFirst = registerAiTelemetry(first.ctx)
     const unregisterSecond = registerAiTelemetry(second.ctx)
 
     try {
-      await integration().onStepStart?.(stepStartEvent())
+      await integration().onStart?.(startEvent(lifecycle))
+      await integration().onStepStart?.(stepStartEvent(lifecycle))
       expect(first.tracer.spans[0]!.attributes[INPUT_VALUE]).toBeDefined()
       expect(second.tracer.spans).toHaveLength(0)
     } finally {
@@ -313,10 +413,14 @@ describe("AI SDK telemetry integration", () => {
   test("ignores AI SDK operations outside the session llm path", async () => {
     const { ctx, tracer } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
+    const lifecycle = bindTelemetryLifecycle(ctx)
     const unregister = registerAiTelemetry(ctx)
 
     try {
-      await integration().onStepStart?.({ ...stepStartEvent(), functionId: "agent.generate" } as OnStepStartEvent)
+      await integration().onStepStart?.({
+        ...stepStartEvent(lifecycle),
+        functionId: "agent.generate",
+      } as OnStepStartEvent)
       expect(tracer.spans[0]!.attributes[INPUT_VALUE]).toBeUndefined()
     } finally {
       unregister()

@@ -128,6 +128,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const messageSpans = new Map()
   const messageOutputs = new Map()
   const llmRequestContexts = new Map()
+  const llmTelemetryBindings: HandlerContext["llmTelemetryBindings"] = {
+    pendingByRequestID: new Map(),
+    byLifecycleMetadata: new WeakMap(),
+  }
   const activeMessageSpans = new Map()
   const llmTelemetryOutputs = new Map()
   const { disabledMetrics, disabledTraces } = config
@@ -176,6 +180,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     messageSpans,
     messageOutputs,
     llmRequestContexts,
+    llmTelemetryBindings,
     tracePropagationProviders: config.tracePropagationProviders,
     activeMessageSpans,
     llmTelemetryOutputs,

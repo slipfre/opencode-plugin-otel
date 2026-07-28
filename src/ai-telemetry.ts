@@ -25,7 +25,7 @@ import {
   TOOL_JSON_SCHEMA,
 } from "@arizeai/openinference-semantic-conventions"
 import { setBoundedMap } from "./util.ts"
-import type { HandlerContext } from "./types.ts"
+import { LLM_TELEMETRY_REQUEST_HEADER, type HandlerContext } from "./types.ts"
 
 type Listener = {
   onStart(event: OnStartEvent): void
@@ -75,21 +75,33 @@ function json(value: unknown): string {
   }
 }
 
-function sessionID(metadata: Record<string, unknown> | undefined): string | undefined {
-  const value = metadata?.sessionId
-  return typeof value === "string" ? value : undefined
-}
-
 function active(
-  input: { functionId: string | undefined; metadata: Record<string, unknown> | undefined },
+  input: {
+    functionId: string | undefined
+    metadata: Record<string, unknown> | undefined
+    headers?: Record<string, string | undefined>
+  },
   ctx: HandlerContext,
 ) {
   if (input.functionId !== "session.llm") return
-  const session = sessionID(input.metadata)
-  if (!session) return
-  const current = ctx.activeMessageSpans.get(session)
-  if (!current) return
-  return { msgKey: `${session}:${current.messageID}`, ...current }
+  const correlated = input.metadata && ctx.llmTelemetryBindings.byLifecycleMetadata.get(input.metadata)
+  if (correlated) return correlated
+  if (!input.headers) return
+  const requestID = input.headers[LLM_TELEMETRY_REQUEST_HEADER]
+  if (!requestID) return
+  const target = ctx.llmTelemetryBindings.pendingByRequestID.get(requestID)
+  if (!target) return
+  ctx.llmTelemetryBindings.pendingByRequestID.delete(requestID)
+  // AI SDK invokes onStart/onStepStart before calling the provider. Remove the
+  // plugin-only header here so it is neither exported as payload data nor sent upstream.
+  delete input.headers[LLM_TELEMETRY_REQUEST_HEADER]
+  if (input.metadata) {
+    // AI SDK reuses the telemetry metadata object for the complete generation.
+    // Step-finish has no request headers, so this second identity mapping carries
+    // the exact request binding forward and prevents title output from overwriting it.
+    ctx.llmTelemetryBindings.byLifecycleMetadata.set(input.metadata, target)
+  }
+  return target
 }
 
 function imageUrl(value: unknown, mediaType: unknown): string | undefined {

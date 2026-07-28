@@ -246,6 +246,10 @@ export function makeCtx(
     messageSpans: new Map(),
     messageOutputs: new Map(),
     llmRequestContexts: new Map(),
+    llmTelemetryBindings: {
+      pendingByRequestID: new Map(),
+      byLifecycleMetadata: new WeakMap(),
+    },
     tracePropagationProviders: new Set(),
     activeMessageSpans: new Map(),
     llmTelemetryOutputs: new Map(),
