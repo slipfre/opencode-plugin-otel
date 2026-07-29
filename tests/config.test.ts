@@ -64,7 +64,7 @@ describe("loadConfig", () => {
     "OPENCODE_OTLP_ENDPOINT",
     "OPENCODE_USER_ID_ENABLED",
     "OPENCODE_USER_ID_ENDPOINT",
-    "OPENCODE_USER_ID_AUTH_HEADER",
+    "OPENCODE_USER_ID-X-Blackbox-Auth",
     "OPENCODE_USER_ID_TIMEOUT",
     "OPENCODE_USER_ID_RETRY_COUNT",
     "OPENCODE_USER_ID_COOLDOWN",
@@ -128,7 +128,7 @@ describe("loadConfig", () => {
   })
 
   test("reads user ID auth header", () => {
-    process.env["OPENCODE_USER_ID_AUTH_HEADER"] = "blackbox-secret"
+    process.env["OPENCODE_USER_ID-X-Blackbox-Auth"] = "blackbox-secret"
     expect(loadConfig().userIDAuthHeader).toBe("blackbox-secret")
   })
 
@@ -409,7 +409,7 @@ describe("loadConfig options", () => {
     "OPENCODE_OTLP_ENDPOINT",
     "OPENCODE_USER_ID_ENABLED",
     "OPENCODE_USER_ID_ENDPOINT",
-    "OPENCODE_USER_ID_AUTH_HEADER",
+    "OPENCODE_USER_ID-X-Blackbox-Auth",
     "OPENCODE_USER_ID_TIMEOUT",
     "OPENCODE_USER_ID_RETRY_COUNT",
     "OPENCODE_USER_ID_COOLDOWN",
@@ -458,7 +458,7 @@ describe("loadConfig options", () => {
   })
 
   test("option user ID auth header overrides env var", () => {
-    process.env["OPENCODE_USER_ID_AUTH_HEADER"] = "env-secret"
+    process.env["OPENCODE_USER_ID-X-Blackbox-Auth"] = "env-secret"
     expect(loadConfig({
       userIDAuthHeader: "option-secret",
     }).userIDAuthHeader).toBe("option-secret")

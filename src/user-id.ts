@@ -1,140 +1,150 @@
 import type { Config } from "@opencode-ai/plugin"
-import type { PluginLogger } from "./types.ts"
+import { USER_ID } from "@arizeai/openinference-semantic-conventions"
+import type { PluginConfig } from "./config.ts"
+import type { CommonAttrs, HandlerContext, PluginLogger } from "./types.ts"
 
 type QueryUserByTokenResponse = {
-  code: number
-  msg: string
+  code?: unknown
   result?: {
-    ssicNo?: string
-    fullName?: string
-    adminDepName?: string
-    baseName?: string
+    ssicNo?: unknown
   }
 }
 
-type QueryUserByToken = (token: string) => Promise<unknown>
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
-
-type UserIDResolverOptions = {
-  authHeader?: string
-  endpoint?: string
-  fetcher?: Fetcher
-  log?: PluginLogger
-  query?: QueryUserByToken
-  requestTimeoutMs?: number
-  retryCount?: number
-  retryDelaysMs?: readonly number[]
-  cooldownMs?: number
-  now?: () => number
-  sleep?: (delayMs: number) => Promise<void>
+type QueryUserByTokenResult = {
+  code?: number
+  userID?: string
 }
 
+type UserIDRequestConfig = {
+  authHeader?: string
+  endpoint: string
+  timeoutMs: number
+}
+
+type UserIDResolverConfig = UserIDRequestConfig & {
+  cooldownMs: number
+  log: PluginLogger
+  retryCount: number
+}
+
+type UserIDManagerConfig = Pick<
+  PluginConfig,
+  | "userIDEnabled"
+  | "userIDEndpoint"
+  | "userIDAuthHeader"
+  | "userIDTimeout"
+  | "userIDRetryCount"
+  | "userIDCooldown"
+>
+
+type UserIDManagerContext = Pick<HandlerContext, "commonAttrs" | "log">
+
 const UNKNOWN_USER_ID = "unknown"
-const QUERY_USER_BY_TOKEN_ENDPOINT = "queryUserByToken"
-const DEFAULT_QUERY_TIMEOUT_MS = 3000
-const DEFAULT_RETRY_COUNT = 2
 const RETRY_BASE_DELAY_MS = 250
-const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000
+
+function isResolvedUserID(userID: unknown): userID is string {
+  return typeof userID === "string" && userID.trim().length > 0 && userID.trim() !== UNKNOWN_USER_ID
+}
 
 async function queryUserByToken(
   token: string,
-  endpoint: string,
-  fetcher: Fetcher,
-  timeoutMs: number,
-  authHeader: string | undefined,
-): Promise<QueryUserByTokenResponse> {
-  const response = await fetcher(endpoint, {
+  config: UserIDRequestConfig,
+): Promise<QueryUserByTokenResult> {
+  const response = await fetch(config.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      ...(authHeader ? { "X-Blackbox-Auth": authHeader } : {}),
+      ...(config.authHeader ? { "X-Blackbox-Auth": config.authHeader } : {}),
     },
     body: JSON.stringify({ token }),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: AbortSignal.timeout(config.timeoutMs),
   })
   if (!response.ok) throw new Error(`queryUserByToken failed with HTTP ${response.status}`)
-  return await response.json() as QueryUserByTokenResponse
-}
-
-function userIDFromResponse(response: unknown): string | undefined {
-  if (!response || typeof response !== "object") return
-  const candidate = response as QueryUserByTokenResponse
-  if (candidate.code !== 0 || !candidate.result) return
-  const userID = candidate.result.ssicNo
-  return typeof userID === "string" && userID.trim().length > 0 ? userID.trim() : undefined
-}
-
-function responseCode(response: unknown): number | undefined {
-  if (!response || typeof response !== "object") return
-  const code = (response as { code?: unknown }).code
-  return typeof code === "number" ? code : undefined
+  const payload: unknown = await response.json()
+  if (!payload || typeof payload !== "object") return {}
+  const candidate = payload as QueryUserByTokenResponse
+  const code = typeof candidate.code === "number" ? candidate.code : undefined
+  const rawUserID = code === 0 ? candidate.result?.ssicNo : undefined
+  const normalizedUserID = typeof rawUserID === "string" ? rawUserID.trim() : undefined
+  const userID = isResolvedUserID(normalizedUserID) ? normalizedUserID : undefined
+  return { code, userID }
 }
 
 function apiKeyFromProviders(providers: Config["provider"]): string | undefined {
-  const provider = Object.values(providers ?? {}).find((candidate) => {
-    const apiKey = candidate.options?.apiKey
-    return typeof apiKey === "string" && apiKey.trim().length > 0
-  })
-  const apiKey = provider?.options?.apiKey
-  return typeof apiKey === "string" ? apiKey.trim() : undefined
+  for (const provider of Object.values(providers ?? {})) {
+    const apiKey = provider.options?.apiKey
+    if (typeof apiKey !== "string") continue
+    const token = apiKey.trim()
+    if (token) return token
+  }
 }
 
-function createUserIDResolver(options: UserIDResolverOptions = {}) {
-  const endpoint = options.endpoint ?? QUERY_USER_BY_TOKEN_ENDPOINT
-  const fetcher = options.fetcher ?? fetch
-  const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS
-  const query = options.query
-    ?? ((token: string) => queryUserByToken(token, endpoint, fetcher, requestTimeoutMs, options.authHeader))
-  const retryCount = options.retryCount ?? DEFAULT_RETRY_COUNT
-  const retryDelaysMs = options.retryDelaysMs
-    ?? Array.from({ length: retryCount }, (_, index) => RETRY_BASE_DELAY_MS * (2 ** index))
-  const cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS
-  const now = options.now ?? Date.now
-  const sleep = options.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)))
+function createUserIDResolver(config: UserIDResolverConfig) {
+  const maxAttempts = config.retryCount + 1
   const writeLog = async (
     level: "debug" | "warn",
     message: string,
     extra: Record<string, unknown>,
   ) => {
     try {
-      await options.log?.(level, message, extra)
+      await config.log(level, message, extra)
     } catch {
     }
   }
   let currentToken: string | undefined
-  let currentUserID = UNKNOWN_USER_ID
-  let retryAfter = 0
-  let generation = 0
-  let inFlight: Promise<string> | undefined
+  let resolvedUserID: string | undefined
+  let cooldownUntil = 0
+  let tokenVersion = 0
+  let pendingResolution: Promise<string> | undefined
 
-  const queryWithRetry = async (token: string): Promise<string | undefined> => {
-    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
-      const attemptNumber = attempt + 1
-      const maxAttempts = retryDelaysMs.length + 1
+  const currentUserID = () => resolvedUserID ?? UNKNOWN_USER_ID
+
+  const resetForToken = (token?: string) => {
+    currentToken = token
+    resolvedUserID = undefined
+    cooldownUntil = 0
+    tokenVersion++
+    pendingResolution = undefined
+  }
+
+  const completeResolution = (
+    requestToken: string,
+    requestTokenVersion: number,
+    userID: string | undefined,
+  ) => {
+    if (requestTokenVersion !== tokenVersion || requestToken !== currentToken) return currentUserID()
+    resolvedUserID = userID
+    cooldownUntil = userID === undefined ? Date.now() + config.cooldownMs : 0
+    return currentUserID()
+  }
+
+  const fetchUserIDWithRetry = async (token: string): Promise<string | undefined> => {
+    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber++) {
       await writeLog("debug", "user ID request sent", {
-        endpoint,
+        endpoint: config.endpoint,
         attempt: attemptNumber,
         maxAttempts,
       })
       let failure: string
       try {
-        const response = await query(token)
-        const userID = userIDFromResponse(response)
+        const result = await queryUserByToken(token, config)
         await writeLog("debug", "user ID request returned", {
-          endpoint,
+          endpoint: config.endpoint,
           attempt: attemptNumber,
           maxAttempts,
-          code: responseCode(response),
-          resolved: userID !== undefined,
+          code: result.code,
+          resolved: result.userID !== undefined,
         })
-        if (userID) return userID
+        if (result.userID) return result.userID
         failure = "response did not contain a valid user ID"
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error)
       }
-      const delayMs = retryDelaysMs[attempt]
+      const delayMs = attemptNumber < maxAttempts
+        ? RETRY_BASE_DELAY_MS * (2 ** (attemptNumber - 1))
+        : undefined
       await writeLog("warn", "user ID request failed", {
-        endpoint,
+        endpoint: config.endpoint,
         attempt: attemptNumber,
         maxAttempts,
         error: failure,
@@ -142,59 +152,84 @@ function createUserIDResolver(options: UserIDResolverOptions = {}) {
         ...(delayMs === undefined ? {} : { retryDelayMs: delayMs }),
       })
       if (delayMs === undefined) return
-      await sleep(delayMs)
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
     }
   }
 
-  const resolve = (providers: Config["provider"]): Promise<string> => {
+  const resolveUserID = (providers: Config["provider"]): Promise<string> => {
     const token = apiKeyFromProviders(providers)
     if (!token) {
-      currentToken = undefined
-      currentUserID = UNKNOWN_USER_ID
-      retryAfter = 0
-      generation++
-      inFlight = undefined
-      return Promise.resolve(currentUserID)
+      if (currentToken !== undefined) resetForToken()
+      return Promise.resolve(UNKNOWN_USER_ID)
     }
 
-    if (token !== currentToken) {
-      currentToken = token
-      currentUserID = UNKNOWN_USER_ID
-      retryAfter = 0
-      generation++
-      inFlight = undefined
-    }
+    if (token !== currentToken) resetForToken(token)
 
-    if (currentUserID !== UNKNOWN_USER_ID) return Promise.resolve(currentUserID)
-    if (now() < retryAfter) return Promise.resolve(currentUserID)
-    if (inFlight) return inFlight
+    if (resolvedUserID !== undefined) return Promise.resolve(resolvedUserID)
+    if (Date.now() < cooldownUntil) return Promise.resolve(UNKNOWN_USER_ID)
+    if (pendingResolution) return pendingResolution
 
-    const requestGeneration = generation
-    const request = queryWithRetry(token)
-      .then((userID) => {
-        if (requestGeneration !== generation || token !== currentToken) return currentUserID
-        currentUserID = userID ?? UNKNOWN_USER_ID
-        retryAfter = userID ? 0 : now() + cooldownMs
-        return currentUserID
-      })
-      .catch(() => {
-        if (requestGeneration !== generation || token !== currentToken) return currentUserID
-        currentUserID = UNKNOWN_USER_ID
-        retryAfter = now() + cooldownMs
-        return currentUserID
-      })
+    const requestTokenVersion = tokenVersion
+    const request = fetchUserIDWithRetry(token)
+      .then((userID) => completeResolution(token, requestTokenVersion, userID))
+      .catch(() => completeResolution(token, requestTokenVersion, undefined))
 
-    inFlight = request
+    pendingResolution = request
     void request.finally(() => {
-      if (inFlight === request) inFlight = undefined
+      if (pendingResolution === request) pendingResolution = undefined
     })
     return request
   }
 
+  return resolveUserID
+}
+
+function createUserIDManager(
+  config: UserIDManagerConfig,
+  ctx: UserIDManagerContext,
+  baseCommonAttrs: CommonAttrs,
+) {
+  const resolveUserID = createUserIDResolver({
+    authHeader: config.userIDAuthHeader,
+    endpoint: config.userIDEndpoint,
+    log: ctx.log,
+    timeoutMs: config.userIDTimeout,
+    retryCount: config.userIDRetryCount,
+    cooldownMs: config.userIDCooldown,
+  })
+  let configuredProviders: Config["provider"]
+
+  const updateCommonAttrs = async () => {
+    if (isResolvedUserID(ctx.commonAttrs[USER_ID])) return
+    const userID = await resolveUserID(configuredProviders)
+    if (ctx.commonAttrs[USER_ID] === userID) return
+    ctx.commonAttrs = {
+      ...baseCommonAttrs,
+      [USER_ID]: userID,
+    }
+    await ctx.log("debug", "user ID updated", {
+      resolved: userID !== UNKNOWN_USER_ID,
+    })
+  }
+
+  const configure = async (nextProviders: Config["provider"]) => {
+    configuredProviders = nextProviders
+    if (config.userIDEnabled) await updateCommonAttrs()
+  }
+
+  const refreshInBackground = () => {
+    if (!config.userIDEnabled) return
+    void updateCommonAttrs().catch((error) => {
+      void ctx.log("warn", "user ID update failed", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+
   return {
-    current: () => currentUserID,
-    resolve,
+    configure,
+    refreshInBackground,
   }
 }
 
-export { createUserIDResolver }
+export { createUserIDManager }
