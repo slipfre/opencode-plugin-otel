@@ -1,0 +1,23 @@
+tests/config.test.ts
+  s_76a15830b4bd57::t_0385eb1650ad31 67,131,412,461
+README.md
+  s_76a15830b4bd57::t_0385eb1650ad31 116,166
+src/config.ts
+  s_76a15830b4bd57::t_0385eb1650ad31 242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "d331f7e5aac42504523f178949728296434fbefd",
+  "prompts": {},
+  "sessions": {
+    "s_76a15830b4bd57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb0f9-b1d3-74f0-ba9f-a7d7875c70f0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
