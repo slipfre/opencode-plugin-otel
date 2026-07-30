@@ -1,0 +1,21 @@
+tests/handlers/spans.test.ts
+  s_76a15830b4bd57::t_aac645b53a6d21 436
+src/index.ts
+  s_76a15830b4bd57::t_b33fc255174c19 297-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "7236193a04fe13ae357f574dbf1bbb5cf29829c3",
+  "prompts": {},
+  "sessions": {
+    "s_76a15830b4bd57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb0f9-b1d3-74f0-ba9f-a7d7875c70f0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
