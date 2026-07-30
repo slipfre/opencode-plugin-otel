@@ -238,7 +238,6 @@ export function makeCtx(
     activeInteractions: new Map(),
     assistantInteractions: new Map(),
     pendingAssistantInteractions: new Map(),
-    pendingInteractions: new Map(),
     pendingSubagentRuns: new Map(),
     interactionInputs: new Map(),
     interactionTotals: new Map(),

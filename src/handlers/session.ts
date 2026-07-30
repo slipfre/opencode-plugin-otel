@@ -111,10 +111,8 @@ export function handleInteractionStarted(
   details?: RunDetails,
 ) {
   const existing = ctx.interactionSpans.get(interactionID)
-  // Async summary updates can re-emit an ended user message, whose retained context marks it as already handled.
   if (!existing && ctx.interactionSpanContexts.has(interactionID)) return
   ctx.activeInteractions.set(sessionID, interactionID)
-  ctx.pendingInteractions.delete(sessionID)
   if (promptText) setBoundedMap(ctx.interactionInputs, interactionID, promptText)
   if (!isTraceEnabled("session", ctx)) return
   const run = ensureRunStarted(sessionID, agent, startTime, ctx, details)
@@ -224,7 +222,6 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
       ctx.pendingToolSpans.delete(key)
     }
   }
-  ctx.pendingInteractions.delete(sessionID)
   ctx.pendingSubagentRuns.delete(sessionID)
   for (const [childSessionID, details] of ctx.pendingSubagentRuns) {
     if (details.parentSessionID === sessionID) ctx.pendingSubagentRuns.delete(childSessionID)

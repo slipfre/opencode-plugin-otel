@@ -125,7 +125,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const activeInteractions = new Map()
   const assistantInteractions = new Map()
   const pendingAssistantInteractions = new Map()
-  const pendingInteractions = new Map()
   const pendingSubagentRuns = new Map()
   const interactionInputs = new Map()
   const interactionTotals = new Map()
@@ -177,7 +176,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     activeInteractions,
     assistantInteractions,
     pendingAssistantInteractions,
-    pendingInteractions,
     pendingSubagentRuns,
     interactionInputs,
     interactionTotals,
@@ -296,28 +294,16 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         }
       }).filter(Boolean).join("\n")
       const model = input.model ? `${input.model.providerID}/${input.model.modelID}` : "unknown"
-      if (input.messageID) {
-        await log("info", "chat.message, input.messageID present")
-        handleInteractionStarted(
-          input.messageID,
-          input.sessionID,
-          agent,
-          promptText,
-          model,
-          startTime,
-          ctx,
-          details,
-        )
-      } else {
-        await log("info", "chat.message, input.messageID not present")
-        setBoundedMap(pendingInteractions, input.sessionID, {
-          agent,
-          promptText,
-          model,
-          startTime,
-          details,
-        })
-      }
+      handleInteractionStarted(
+        output.message.id,
+        input.sessionID,
+        agent,
+        promptText,
+        model,
+        startTime,
+        ctx,
+        details,
+      )
       const promptLength = promptText.length
       emitLog({
         severityNumber: SeverityNumber.INFO,
@@ -371,20 +357,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           const msgEvt = event as EventMessageUpdated
           const info = msgEvt.properties.info
           if (info.role === "user") {
-            const pendingInteraction = pendingInteractions.get(info.sessionID)
-            if (pendingInteraction || activeInteractions.get(info.sessionID) !== info.id) {
-              const details = pendingInteraction?.details ?? takeRunDetails(info.sessionID)
-              handleInteractionStarted(
-                info.id,
-                info.sessionID,
-                pendingInteraction?.agent ?? info.agent,
-                pendingInteraction?.promptText ?? "",
-                pendingInteraction?.model ?? `${info.model.providerID}/${info.model.modelID}`,
-                pendingInteraction?.startTime ?? info.time.created,
-                ctx,
-                details,
-              )
-            }
             break
           }
           if (info.role === "assistant" && !info.time?.completed) {

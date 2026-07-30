@@ -89,15 +89,6 @@ export type ActiveRunSpan = {
   interactionIO: Map<string, { input: string; output?: string }>
 }
 
-/** Pending interaction metadata captured from `chat.message` until the user message ID is known. */
-export type PendingInteraction = {
-  agent: string
-  promptText: string
-  model: string
-  startTime: number
-  details: RunDetails
-}
-
 /** Live LLM request span metadata used by the outbound header hook. */
 export type LlmRequestContext = {
   messageID: string
@@ -140,7 +131,6 @@ export type HandlerContext = {
   activeInteractions: Map<string, string>
   assistantInteractions: Map<string, string>
   pendingAssistantInteractions: Map<string, { sessionID: string; interactionID: string }>
-  pendingInteractions: Map<string, PendingInteraction>
   pendingSubagentRuns: Map<string, RunDetails>
   interactionInputs: Map<string, string>
   interactionTotals: Map<string, InteractionTotals>

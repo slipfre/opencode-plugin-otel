@@ -433,7 +433,7 @@ describe("run and interaction spans", () => {
     expect(ctx.interactionSpans.has("user_1")).toBe(false)
   })
 
-  test("does not recreate an ended interaction after a late user message update", () => {
+  test("does not recreate an ended interaction when its start is replayed", () => {
     const { ctx, tracer } = makeCtx()
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessageUpdated(makeAssistantMessageUpdated({
