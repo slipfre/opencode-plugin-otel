@@ -1,0 +1,35 @@
+src/types.ts
+  s_76a15830b4bd57::t_030c0987dd736d 86-90,142
+src/interaction.ts
+  s_76a15830b4bd57::t_030c0987dd736d 2-6,19,28-38,45
+src/handlers/message.ts
+  s_76a15830b4bd57::t_030c0987dd736d 190-193
+  s_76a15830b4bd57::t_d2f6765c574f44 243
+  s_76a15830b4bd57::t_408b80891fa04f 194
+tests/handlers/spans.test.ts
+  s_76a15830b4bd57::t_d2f6765c574f44 415,430-431,447,505-506,512-549,612,643-644,649-650
+  s_76a15830b4bd57::t_dd42e7e15e3ff8 550,577-599
+  s_76a15830b4bd57::t_5da1006b030531 551
+src/handlers/session.ts
+  s_76a15830b4bd57::t_3af11f632cbe06 271-274
+src/index.ts
+  s_76a15830b4bd57::t_030c0987dd736d 131,183
+tests/helpers.ts
+  s_76a15830b4bd57::t_030c0987dd736d 244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "b95703e0d6ddc4115a21406cd50147eb39b8051a",
+  "prompts": {},
+  "sessions": {
+    "s_76a15830b4bd57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb0f9-b1d3-74f0-ba9f-a7d7875c70f0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
