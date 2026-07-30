@@ -241,6 +241,7 @@ export function makeCtx(
     pendingSubagentRuns: new Map(),
     interactionInputs: new Map(),
     interactionTotals: new Map(),
+    interactionCompletions: new Map(),
     sessionParents: new Map(),
     messageSpans: new Map(),
     messageOutputs: new Map(),

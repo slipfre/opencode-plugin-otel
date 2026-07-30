@@ -128,6 +128,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const pendingSubagentRuns = new Map()
   const interactionInputs = new Map()
   const interactionTotals = new Map()
+  const interactionCompletions = new Map()
   const sessionParents = new Map()
   const messageSpans = new Map()
   const messageOutputs = new Map()
@@ -179,6 +180,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     pendingSubagentRuns,
     interactionInputs,
     interactionTotals,
+    interactionCompletions,
     sessionParents,
     messageSpans,
     messageOutputs,

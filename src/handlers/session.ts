@@ -268,7 +268,10 @@ function endInteractions(
       pending => pending.sessionID === sessionID && pending.interactionID === interactionID,
     )
     if (hasPendingAssistant) continue
-    endInteractionSpan(interactionID, sessionID, status, ctx, undefined, error)
+    const endTime = status === SpanStatusCode.OK
+      ? ctx.interactionCompletions.get(interactionID)?.endTime
+      : undefined
+    endInteractionSpan(interactionID, sessionID, status, ctx, endTime, error)
   }
 }
 

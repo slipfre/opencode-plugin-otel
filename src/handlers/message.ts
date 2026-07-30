@@ -187,17 +187,11 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   })
 
   const outputText = ctx.messageOutputs.get(msgKey)
-  if (outputText !== undefined) {
-    const outputAttrs = {
-      [OUTPUT_VALUE]: outputText,
-      [OUTPUT_MIME_TYPE]: MimeType.TEXT,
-    }
-    ctx.interactionSpans.get(interactionID)?.setAttributes(outputAttrs)
-    const run = ctx.activeRunSpans.get(sessionID)
-    const interactionIO = run?.interactionIO.get(interactionID)
-    if (run && interactionIO) {
-      run.interactionIO.set(interactionID, { ...interactionIO, output: outputText })
-    }
+  if (assistant.summary !== true && ctx.interactionSpans.has(interactionID)) {
+    setBoundedMap(ctx.interactionCompletions, interactionID, {
+      endTime: assistant.time.completed,
+      output: outputText,
+    })
   }
   const msgSpan = ctx.messageSpans.get(msgKey)
   if (msgSpan) {
@@ -246,12 +240,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   ctx.llmTelemetryOutputs.delete(msgKey)
   ctx.pendingAssistantInteractions.delete(msgKey)
 
-  const hasPendingAssistant = [...ctx.pendingAssistantInteractions.values()].some(
-    pending => pending.sessionID === sessionID && pending.interactionID === interactionID,
-  )
-  const completesInteraction = assistant.error
-    || (assistant.summary !== true && assistant.finish !== "tool-calls" && assistant.finish !== "unknown")
-  if (completesInteraction && !hasPendingAssistant) {
+  if (assistant.error || (!ctx.activeRunSpans.has(sessionID) && ctx.interactionSpans.has(interactionID))) {
     const interactionError = assistant.error ? errorSummary(assistant.error) : undefined
     endInteractionSpan(
       interactionID,

@@ -83,6 +83,11 @@ type InteractionTotals = {
   messages: number
 }
 
+type InteractionCompletion = {
+  endTime: number
+  output?: string
+}
+
 export type ActiveRunSpan = {
   span: Span
   interactionIDs: Set<string>
@@ -134,6 +139,7 @@ export type HandlerContext = {
   pendingSubagentRuns: Map<string, RunDetails>
   interactionInputs: Map<string, string>
   interactionTotals: Map<string, InteractionTotals>
+  interactionCompletions: Map<string, InteractionCompletion>
   sessionParents: Map<string, string>
   messageSpans: Map<string, Span>
   messageOutputs: Map<string, string>

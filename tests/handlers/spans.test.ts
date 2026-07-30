@@ -412,6 +412,7 @@ describe("run and interaction spans", () => {
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessagePartUpdated(makeTextPartUpdated("final answer"), ctx)
     handleMessageUpdated(makeAssistantMessageUpdated({ id: "msg_1", parentID: "user_1", mode: "build" }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("final answer")
     expect(tracer.spans[1]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
   })
@@ -426,6 +427,8 @@ describe("run and interaction spans", () => {
     }), ctx)
 
     const interactionSpan = tracer.spans[1]!
+    expect(interactionSpan.ended).toBe(false)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     expect(interactionSpan.ended).toBe(true)
     expect(interactionSpan.endTime).toBe(2400)
     expect(interactionSpan.status.code).toBe(SpanStatusCode.OK)
@@ -441,6 +444,7 @@ describe("run and interaction spans", () => {
       finish: "stop",
       time: { created: 1200, completed: 2400 },
     }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
 
     handleInteractionStarted("user_1", "ses_1", "build", "", "anthropic/claude", 1000, ctx)
 
@@ -498,9 +502,51 @@ describe("run and interaction spans", () => {
       time: { created: 3100, completed: 4000 },
     }), ctx)
 
+    expect(tracer.spans[1]!.ended).toBe(false)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     expect(tracer.spans[1]!.ended).toBe(true)
     expect(tracer.spans[1]!.endTime).toBe(4000)
     expect(tracer.spans[1]!.attributes["interaction.total_messages"]).toBe(3)
+  })
+
+  test("interaction waits for the final assistant when a tool-calling message finishes with stop", () => {
+    const { ctx, tracer } = makeCtx("proj_test", [], ["llm"])
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    handleMessagePartUpdated(makeTextPartUpdated("checking", "ses_1", "msg_first"), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("running", {
+      sessionID: "ses_1",
+      messageID: "msg_first",
+      callID: "call_1",
+    }), ctx)
+    handleMessagePartUpdated(makeToolPartUpdated("completed", {
+      sessionID: "ses_1",
+      messageID: "msg_first",
+      callID: "call_1",
+      output: "done",
+    }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_first",
+      parentID: "user_1",
+      finish: "stop",
+      time: { created: 1200, completed: 2000 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(false)
+
+    handleMessagePartUpdated(makeTextPartUpdated("final answer", "ses_1", "msg_final"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_final",
+      parentID: "user_1",
+      finish: "stop",
+      time: { created: 2100, completed: 3000 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(false)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.endTime).toBe(3000)
+    expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("final answer")
   })
 
   test("interaction waits for a late errored assistant completion after session termination", () => {
@@ -528,6 +574,29 @@ describe("run and interaction spans", () => {
     expect(ctx.pendingAssistantInteractions.size).toBe(0)
   })
 
+  test("interaction ends from a successful assistant completion that arrives after idle", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1200, ctx)
+    handleMessagePartUpdated(makeTextPartUpdated("final answer"), ctx)
+
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+    expect(tracer.spans[1]!.ended).toBe(false)
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_1",
+      parentID: "user_1",
+      finish: "stop",
+      time: { created: 1200, completed: 2500 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.endTime).toBe(2500)
+    expect(tracer.spans[1]!.status.code).toBe(SpanStatusCode.OK)
+    expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("final answer")
+    expect(ctx.interactionCompletions.size).toBe(0)
+  })
+
   test("subagent interaction span carries the final assistant output", () => {
     const { ctx, tracer } = makeCtx("proj_test", [], ["llm"])
     handleInteractionStarted("user_parent", "ses_parent", "build", "prompt", "anthropic/claude", 1000, ctx)
@@ -540,6 +609,7 @@ describe("run and interaction spans", () => {
       sessionID: "ses_child",
       mode: "review",
     }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_child"), ctx)
     expect(tracer.spans[3]!.attributes[OUTPUT_VALUE]).toBe("subagent result")
     expect(tracer.spans[3]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
   })
@@ -570,12 +640,14 @@ describe("run and interaction spans", () => {
     expect(tracer.spans[1]!.parentSpan).toBe(tracer.spans[0])
     expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[0])
     expect(tracer.spans[0]!.ended).toBe(false)
-    expect(tracer.spans[1]!.endTime).toBe(2000)
-    expect(tracer.spans[2]!.endTime).toBe(3000)
+    expect(tracer.spans[1]!.ended).toBe(false)
+    expect(tracer.spans[2]!.ended).toBe(false)
 
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
 
     expect(tracer.spans.every((span) => span.ended)).toBe(true)
+    expect(tracer.spans[1]!.endTime).toBe(2000)
+    expect(tracer.spans[2]!.endTime).toBe(3000)
     expect(tracer.spans[0]!.attributes["run.total_interactions"]).toBe(2)
     expect(tracer.spans[0]!.attributes["interaction.count"]).toBeUndefined()
     expect(tracer.spans[0]!.attributes[INPUT_MIME_TYPE]).toBe(MimeType.JSON)
