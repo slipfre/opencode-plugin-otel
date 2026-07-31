@@ -1,0 +1,14 @@
+src/config.ts
+  h_076b07aabc3f4d 242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "811e6f787e3e506bd571371908e5fb78dc385eae",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
