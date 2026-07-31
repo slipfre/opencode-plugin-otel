@@ -239,7 +239,7 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
       ?? process.env["OPENCODE_USER_ID_ENDPOINT"]
       ?? "queryUserByToken",
     userIDAuthHeader: pickString(resolvedOptions.userIDAuthHeader)
-      ?? process.env["OPENCODE_USER_ID-X-Blackbox-Auth"],
+      ?? process.env["OPENCODE_USER_ID_X-Blackbox-Auth"],
     userIDTimeout: pickPositiveInt(resolvedOptions.userIDTimeout)
       ?? parseEnvInt("OPENCODE_USER_ID_TIMEOUT", DEFAULT_USER_ID_TIMEOUT),
     userIDRetryCount: pickNonNegativeInt(resolvedOptions.userIDRetryCount, MAX_USER_ID_RETRY_COUNT)
