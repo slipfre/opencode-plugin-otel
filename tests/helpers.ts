@@ -120,7 +120,6 @@ export function makeCtx(
     log: pluginLog.fn,
     commonAttrs: { "project.id": projectID, ...extraCommonAttrs },
     pendingToolSpans: new Map(),
-    sessionTotals: new Map(),
     disabledTraces: new Set(disabledTraces),
     tracer: tracer as unknown as Tracer,
     tracePrefix: "opencode.",

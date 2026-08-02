@@ -23,8 +23,6 @@ import {
 } from "./handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
-import { setBoundedMap } from "./util.ts"
-import type { SessionTotals } from "./types.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
 import { createUserIDManager } from "./user-id.ts"
 
@@ -97,7 +95,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
   const rootContext = remoteContext ? () => remoteContext : () => ROOT_CONTEXT
   const pendingToolSpans = new Map()
-  const sessionTotals = new Map()
   const activeRunSpans = new Map()
   const interactionSpans = new Map()
   const interactionSpanContexts = new Map()
@@ -132,7 +129,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     log,
     commonAttrs,
     pendingToolSpans,
-    sessionTotals,
     disabledTraces,
     tracer,
     tracePrefix: config.tracePrefix,
@@ -235,16 +231,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
       userIDManager.refreshInBackground()
       const agent = input.agent ?? "unknown"
       const startTime = Date.now()
-      const existingTotals = sessionTotals.get(input.sessionID)
       const details = takeRunDetails(input.sessionID)
-      const nextTotals: SessionTotals = {
-        tokens: existingTotals?.tokens ?? 0,
-        cost: existingTotals?.cost ?? 0,
-        messages: existingTotals?.messages ?? 0,
-        agent,
-        agentType: details.agentType,
-      }
-      setBoundedMap(sessionTotals, input.sessionID, nextTotals)
       const promptText = output.parts.map((part) => {
         switch (part.type) {
           case "text":

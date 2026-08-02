@@ -223,7 +223,7 @@ describe("run and interaction spans", () => {
   test("sets run total attributes before ending on idle", () => {
     const { ctx, tracer } = makeCtx()
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
-    ctx.sessionTotals.set("ses_1", { tokens: 250, cost: 0.05, messages: 3, agent: "build", agentType: "primary" })
+    Object.assign(ctx.activeRunSpans.get("ses_1")!, { tokens: 250, cost: 0.05, messages: 3 })
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     const span = tracer.spans[0]!
     expect(span.attributes["run.total_tokens"]).toBe(250)
@@ -649,6 +649,9 @@ describe("run and interaction spans", () => {
     expect(tracer.spans[1]!.endTime).toBe(2000)
     expect(tracer.spans[2]!.endTime).toBe(3000)
     expect(tracer.spans[0]!.attributes["run.total_interactions"]).toBe(2)
+    expect(tracer.spans[0]!.attributes["run.total_tokens"]).toBe(450)
+    expect(tracer.spans[0]!.attributes["run.total_cost_usd"]).toBe(0.03)
+    expect(tracer.spans[0]!.attributes["run.total_messages"]).toBe(2)
     expect(tracer.spans[0]!.attributes["interaction.count"]).toBeUndefined()
     expect(tracer.spans[0]!.attributes[INPUT_MIME_TYPE]).toBe(MimeType.JSON)
     expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT)
@@ -724,13 +727,13 @@ describe("tool spans", () => {
 
   test("tool span carries tool.name attribute", () => {
     const { ctx, tracer } = makeCtx()
-    ctx.sessionTotals.set("ses_1", { tokens: 0, cost: 0, messages: 0, agent: "build", agentType: "primary" })
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
     handleMessagePartUpdated(makeToolPartUpdated("running", { tool: "read_file" }), ctx)
-    expect(tracer.spans[0]!.attributes["tool.name"]).toBe("read_file")
-    expect(tracer.spans[0]!.attributes[TOOL_NAME]).toBe("read_file")
-    expect(tracer.spans[0]!.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.TOOL)
-    expect(tracer.spans[0]!.attributes[AGENT_NAME]).toBe("build")
-    expect(tracer.spans[0]!.attributes["agent.type"]).toBe("primary")
+    expect(tracer.spans[2]!.attributes["tool.name"]).toBe("read_file")
+    expect(tracer.spans[2]!.attributes[TOOL_NAME]).toBe("read_file")
+    expect(tracer.spans[2]!.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.TOOL)
+    expect(tracer.spans[2]!.attributes[AGENT_NAME]).toBe("build")
+    expect(tracer.spans[2]!.attributes["agent.type"]).toBe("primary")
   })
 
   test("ends tool span with OK status on completion", () => {
@@ -911,8 +914,8 @@ describe("message (LLM) spans", () => {
 
   test("handleMessageUpdated sets OpenInference token attributes on span", () => {
     const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "review", "prompt", "anthropic/claude", 900, ctx, { agentType: "subagent" })
     startMessageSpan("ses_1", "msg_1", "user_1", "claude-3-5-sonnet", "anthropic", 1000, ctx)
-    ctx.sessionTotals.set("ses_1", { tokens: 0, cost: 0, messages: 0, agent: "review", agentType: "subagent" })
     handleMessageUpdated(
       makeAssistantMessageUpdated({
         id: "msg_1",
@@ -920,7 +923,7 @@ describe("message (LLM) spans", () => {
       }),
       ctx,
     )
-    const span = tracer.spans[0]!
+    const span = tracer.spans[2]!
     expect(span.attributes[LLM_TOKEN_COUNT_PROMPT]).toBe(235)
     expect(span.attributes[LLM_TOKEN_COUNT_COMPLETION]).toBe(90)
     expect(span.attributes[LLM_TOKEN_COUNT_COMPLETION_DETAILS_REASONING]).toBe(10)
@@ -933,11 +936,11 @@ describe("message (LLM) spans", () => {
 
   test("handleMessageUpdated replaces an unknown agent from the assistant message", () => {
     const { ctx, tracer } = makeCtx()
-    ctx.sessionTotals.set("ses_1", { tokens: 0, cost: 0, messages: 0, agent: "unknown", agentType: "primary" })
+    handleInteractionStarted("user_1", "ses_1", "unknown", "prompt", "openai/gpt-4o", 900, ctx)
     startMessageSpan("ses_1", "msg_1", "user_1", "gpt-4o", "openai", 1000, ctx)
     handleMessageUpdated(makeAssistantMessageUpdated({ id: "msg_1", mode: "build" }), ctx)
-    expect(tracer.spans[0]!.attributes[AGENT_NAME]).toBe("build")
-    expect(ctx.sessionTotals.get("ses_1")!.agent).toBe("build")
+    expect(tracer.spans[2]!.attributes[AGENT_NAME]).toBe("build")
+    expect(ctx.activeRunSpans.get("ses_1")!.agent).toBe("build")
   })
 
   test("handleMessageUpdated no-ops span handling when no span exists for messageID", () => {

@@ -40,15 +40,6 @@ export type RunDetails = {
   taskSpanContext?: SpanContext
 }
 
-/** Accumulated per-session totals attached to the run span on session.idle. */
-export type SessionTotals = {
-  tokens: number
-  cost: number
-  messages: number
-  agent: string
-  agentType: SessionAgentType
-}
-
 type InteractionTotals = {
   tokens: number
   cost: number
@@ -60,8 +51,14 @@ type InteractionCompletion = {
   output?: string
 }
 
+/** Live run span with its accumulated usage, agent metadata, and interaction state. */
 export type ActiveRunSpan = {
   span: Span
+  agent: string
+  agentType: SessionAgentType
+  tokens: number
+  cost: number
+  messages: number
   interactionIDs: Set<string>
   interactionIO: Map<string, { input: string; output?: string }>
 }
@@ -92,7 +89,6 @@ export type HandlerContext = {
   log: PluginLogger
   commonAttrs: CommonAttrs
   pendingToolSpans: Map<string, PendingToolSpan>
-  sessionTotals: Map<string, SessionTotals>
   disabledTraces: Set<string>
   tracer: Tracer
   tracePrefix: string

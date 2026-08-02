@@ -33,16 +33,27 @@ import {
   genAiProviderName,
   setBoundedMap,
   accumulateInteractionTotals,
-  accumulateSessionTotals,
-  getSessionAgentMeta,
   isTraceEnabled,
   resolveSessionTraceContext,
 } from "../util.ts"
-import type { HandlerContext, RunDetails } from "../types.ts"
+import type { HandlerContext, RunDetails, SessionAgentType } from "../types.ts"
 import { endInteractionSpan } from "../interaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
+
+function getRunAgentMeta(
+  sessionID: string,
+  ctx: HandlerContext,
+): { agentName: string; agentType: SessionAgentType } {
+  const run = ctx.activeRunSpans.get(sessionID)
+  return {
+    agentName: run?.agent ?? "unknown",
+    agentType: run?.agentType
+      ?? ctx.pendingSubagentRuns.get(sessionID)?.agentType
+      ?? (ctx.sessionParents.has(sessionID) ? "subagent" : "primary"),
+  }
+}
 
 function taskMetadata(toolPart: ToolPart) {
   if (toolPart.tool !== "task" || !("metadata" in toolPart.state)) return
@@ -90,11 +101,7 @@ function recordLlmOutputEnd(toolPart: ToolPart, outputEndTime: number, ctx: Hand
   })
 }
 
-/**
- * Handles a completed assistant message and ends the LLM span for this message.
- * The `agent` attribute is sourced from the session totals, which are populated by the
- * `chat.message` hook when the user prompt is received.
- */
+/** Completes an assistant message span and accumulates its usage on the active run and interaction. */
 export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext) {
   const msg = e.properties.info
   if (msg.role !== "assistant") return
@@ -113,19 +120,24 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     Math.max(assistant.time.created, recordedOutputEndTime),
   )
   const duration = outputEndTime - assistant.time.created
-  const sessionAgent = getSessionAgentMeta(sessionID, ctx)
+  const run = ctx.activeRunSpans.get(sessionID)
+  const runAgent = getRunAgentMeta(sessionID, ctx)
   const messageAgent = (assistant as AssistantMessage & { agent?: string }).agent ?? assistant.mode
-  const agentName = messageAgent || sessionAgent.agentName
-  const agentType = sessionAgent.agentType
-  const totals = ctx.sessionTotals.get(sessionID)
-  if (messageAgent && totals && totals.agent !== messageAgent) {
-    setBoundedMap(ctx.sessionTotals, sessionID, { ...totals, agent: messageAgent })
+  const agentName = messageAgent || runAgent.agentName
+  const agentType = runAgent.agentType
+  if (messageAgent && run) {
+    run.agent = messageAgent
+    run.span.setAttribute(AGENT_NAME, messageAgent)
   }
   const promptTokens = assistant.tokens.input + assistant.tokens.cache.read + assistant.tokens.cache.write
   const completionTokens = assistant.tokens.output + assistant.tokens.reasoning
   const totalTokens = promptTokens + completionTokens
 
-  accumulateSessionTotals(sessionID, totalTokens, assistant.cost, ctx)
+  if (run) {
+    run.tokens += totalTokens
+    run.cost += assistant.cost
+    run.messages += 1
+  }
   const interactionID = ctx.assistantInteractions.get(assistant.id) ?? assistant.parentID
   accumulateInteractionTotals(interactionID, totalTokens, assistant.cost, ctx)
 
@@ -228,7 +240,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
         return
       }
       recordLlmOutputEnd(toolPart, toolPart.state.time.start, ctx)
-      const { agentName, agentType } = getSessionAgentMeta(toolPart.sessionID, ctx)
+      const { agentName, agentType } = getRunAgentMeta(toolPart.sessionID, ctx)
       const toolSpan = isTraceEnabled("tool", ctx)
         ? (() => {
             return ctx.tracer.startSpan(
@@ -273,7 +285,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     const end = toolPart.state.time.end
     if (end === undefined) return
     const success = toolPart.state.status === "completed"
-    const { agentName, agentType } = getSessionAgentMeta(toolPart.sessionID, ctx)
+    const { agentName, agentType } = getRunAgentMeta(toolPart.sessionID, ctx)
     const task = taskMetadata(toolPart)
     if (task) removePendingSubagentRun(task.childSessionID, toolPart.callID, ctx)
 
@@ -348,12 +360,13 @@ export function startMessageSpan(
   setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID: parentID })
   if (!isTraceEnabled("llm", ctx)) return
   if (ctx.messageSpans.has(msgKey)) return
-  const sessionAgent = getSessionAgentMeta(sessionID, ctx)
-  const agentName = messageAgent || sessionAgent.agentName
-  const agentType = sessionAgent.agentType
-  const totals = ctx.sessionTotals.get(sessionID)
-  if (messageAgent && totals && totals.agent !== messageAgent) {
-    setBoundedMap(ctx.sessionTotals, sessionID, { ...totals, agent: messageAgent })
+  const run = ctx.activeRunSpans.get(sessionID)
+  const runAgent = getRunAgentMeta(sessionID, ctx)
+  const agentName = messageAgent || runAgent.agentName
+  const agentType = runAgent.agentType
+  if (messageAgent && run) {
+    run.agent = messageAgent
+    run.span.setAttribute(AGENT_NAME, messageAgent)
   }
   const inputText = ctx.interactionInputs.get(parentID)
 

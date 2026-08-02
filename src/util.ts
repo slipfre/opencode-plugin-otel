@@ -1,6 +1,6 @@
 import { trace } from "@opentelemetry/api"
 import { MAX_PENDING } from "./types.ts"
-import type { HandlerContext, SessionAgentType } from "./types.ts"
+import type { HandlerContext } from "./types.ts"
 
 const GEN_AI_PROVIDER_NAMES: Readonly<Record<string, string>> = {
   "amazon-bedrock": "aws.bedrock",
@@ -77,28 +77,6 @@ export function isTraceEnabled(name: string, ctx: { disabledTraces: Set<string> 
   return !ctx.disabledTraces.has(name)
 }
 
-/**
- * Accumulates token and cost totals for a session, and increments the message count.
- * Uses `setBoundedMap` to produce a new object rather than mutating in-place.
- * No-ops silently if the session was not previously registered via `handleSessionCreated`.
- */
-export function accumulateSessionTotals(
-  sessionID: string,
-  tokens: number,
-  cost: number,
-  ctx: HandlerContext,
-) {
-  const existing = ctx.sessionTotals.get(sessionID)
-  if (!existing) return
-  setBoundedMap(ctx.sessionTotals, sessionID, {
-    tokens: existing.tokens + tokens,
-    cost: existing.cost + cost,
-    messages: existing.messages + 1,
-    agent: existing.agent,
-    agentType: existing.agentType,
-  })
-}
-
 export function accumulateInteractionTotals(
   interactionID: string,
   tokens: number,
@@ -112,16 +90,4 @@ export function accumulateInteractionTotals(
     cost: existing.cost + cost,
     messages: existing.messages + 1,
   })
-}
-
-/** Returns the current session-scoped agent name/type, defaulting to `unknown` when unavailable. */
-export function getSessionAgentMeta(
-  sessionID: string,
-  ctx: Pick<HandlerContext, "sessionTotals">,
-): { agentName: string; agentType: SessionAgentType | "unknown" } {
-  const totals = ctx.sessionTotals.get(sessionID)
-  return {
-    agentName: totals?.agent ?? "unknown",
-    agentType: totals?.agentType ?? "unknown",
-  }
 }

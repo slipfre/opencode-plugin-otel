@@ -53,6 +53,8 @@ function ensureRunStarted(
   const isSubagent = agentType === "subagent"
   const existing = ctx.activeRunSpans.get(sessionID)
   if (existing) {
+    if (agent !== "unknown") existing.agent = agent
+    existing.agentType = agentType
     existing.span.setAttributes({
       ...(agent !== "unknown" ? { [AGENT_NAME]: agent } : {}),
       "agent.type": agentType,
@@ -88,6 +90,11 @@ function ensureRunStarted(
   span.setAttribute("opencode.run.id", span.spanContext().spanId)
   const run = {
     span,
+    agent,
+    agentType,
+    tokens: 0,
+    cost: 0,
+    messages: 0,
     interactionIDs: new Set<string>(),
     interactionIO: new Map<string, { input: string; output?: string }>(),
   }
@@ -177,13 +184,9 @@ export function handleInteractionStarted(
   ctx.interactionTotals.set(interactionID, { tokens: 0, cost: 0, messages: 0 })
 }
 
-/** Records session state used by run and interaction spans. */
+/** Records the parent-session relationship used to identify and parent subagent runs. */
 export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext) {
   const { id: sessionID, parentID } = e.properties.info
-  const isSubagent = !!parentID
-  const agentType: SessionAgentType = isSubagent ? "subagent" : "primary"
-  setBoundedMap(ctx.sessionTotals, sessionID, { tokens: 0, cost: 0, messages: 0, agent: "unknown", agentType })
-
   if (parentID) setBoundedMap(ctx.sessionParents, sessionID, parentID)
 }
 
@@ -251,22 +254,18 @@ function endInteractions(
 /** Records totals, ends the active run, and clears pending state. */
 export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   const sessionID = e.properties.sessionID
-  const totals = ctx.sessionTotals.get(sessionID)
-  ctx.sessionTotals.delete(sessionID)
   sweepSession(sessionID, ctx)
   endInteractions(sessionID, SpanStatusCode.OK, ctx)
 
   const run = ctx.activeRunSpans.get(sessionID)
   if (run) {
-    if (totals) {
-      run.span.setAttributes({
-        [AGENT_NAME]: totals.agent,
-        "agent.type": totals.agentType,
-        "run.total_tokens": totals.tokens,
-        "run.total_cost_usd": totals.cost,
-        "run.total_messages": totals.messages,
-      })
-    }
+    run.span.setAttributes({
+      [AGENT_NAME]: run.agent,
+      "agent.type": run.agentType,
+      "run.total_tokens": run.tokens,
+      "run.total_cost_usd": run.cost,
+      "run.total_messages": run.messages,
+    })
     setRunIOAttributes(run)
     run.span.setAttribute("run.total_interactions", run.interactionIDs.size)
     run.span.setStatus({ code: SpanStatusCode.OK })
@@ -281,25 +280,19 @@ export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
   const rawID = e.properties.sessionID
   const sessionID = rawID ?? "unknown"
   const error = errorSummary(e.properties.error)
-  const totals = rawID ? ctx.sessionTotals.get(rawID) : undefined
-  if (rawID) {
-    ctx.sessionTotals.delete(rawID)
-  }
   sweepSession(sessionID, ctx)
   if (rawID) endInteractions(rawID, SpanStatusCode.ERROR, ctx, error)
 
   if (rawID) {
     const run = ctx.activeRunSpans.get(rawID)
     if (run) {
-      if (totals) {
-        run.span.setAttributes({
-          [AGENT_NAME]: totals.agent,
-          "agent.type": totals.agentType,
-          "run.total_tokens": totals.tokens,
-          "run.total_cost_usd": totals.cost,
-          "run.total_messages": totals.messages,
-        })
-      }
+      run.span.setAttributes({
+        [AGENT_NAME]: run.agent,
+        "agent.type": run.agentType,
+        "run.total_tokens": run.tokens,
+        "run.total_cost_usd": run.cost,
+        "run.total_messages": run.messages,
+      })
       setRunIOAttributes(run)
       run.span.setAttribute("run.total_interactions", run.interactionIDs.size)
       run.span.setStatus({ code: SpanStatusCode.ERROR, message: error })
