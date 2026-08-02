@@ -1,0 +1,25 @@
+tests/handlers/spans.test.ts
+  s_b57e39e36a4695::t_78658898a4bc34 1024,1027
+tests/util.test.ts
+  s_b57e39e36a4695::t_78658898a4bc34 102,106,118,122
+src/config.ts
+  s_b57e39e36a4695::t_78658898a4bc34 4
+README.md
+  s_b57e39e36a4695::t_78658898a4bc34 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "b264e25b887f11a368abef1de8cd21e95ce7ccce",
+  "prompts": {},
+  "sessions": {
+    "s_b57e39e36a4695": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc1a1-b699-77e3-814b-57354fbed3d5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shenxionghao <sxh139726845@163.com>"
+    }
+  }
+}
