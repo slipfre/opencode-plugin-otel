@@ -70,14 +70,6 @@ export function resolveSessionTraceContext(
 }
 
 /**
- * Returns `true` if the metric name (without prefix) is not in the disabled set.
- * The `name` should be the suffix after the metric prefix, e.g. `"session.count"`.
- */
-export function isMetricEnabled(name: string, ctx: { disabledMetrics: Set<string> }): boolean {
-  return !ctx.disabledMetrics.has(name)
-}
-
-/**
  * Returns `true` if the trace type is not in the disabled set.
  * Valid names are `"session"`, `"llm"`, and `"tool"`.
  */
@@ -99,7 +91,6 @@ export function accumulateSessionTotals(
   const existing = ctx.sessionTotals.get(sessionID)
   if (!existing) return
   setBoundedMap(ctx.sessionTotals, sessionID, {
-    startMs: existing.startMs,
     tokens: existing.tokens + tokens,
     cost: existing.cost + cost,
     messages: existing.messages + 1,
@@ -133,13 +124,4 @@ export function getSessionAgentMeta(
     agentName: totals?.agent ?? "unknown",
     agentType: totals?.agentType ?? "unknown",
   }
-}
-
-/** Builds a consistent agent attribute set for OTLP logs, metrics, and spans. */
-export function agentAttrs(agentName: string, agentType: SessionAgentType | "unknown") {
-  return {
-    agent: agentName,
-    "agent.name": agentName,
-    "agent.type": agentType,
-  } as const
 }

@@ -1,8 +1,6 @@
 import { createRequire } from "module"
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core"
-import type { PushMetricExporter, ResourceMetrics } from "@opentelemetry/sdk-metrics"
 import type { SpanExporter, ReadableSpan } from "@opentelemetry/sdk-trace-base"
-import type { LogRecordExporter, ReadableLogRecord } from "@opentelemetry/sdk-logs"
 import type { Metadata } from "@grpc/grpc-js"
 
 const require = createRequire(import.meta.url)
@@ -13,9 +11,6 @@ type Exporter<T> = {
   shutdown(): Promise<void>
   forceFlush?(): Promise<void>
 }
-
-type SelectAggregation = NonNullable<PushMetricExporter["selectAggregation"]>
-type SelectAggregationTemporality = NonNullable<PushMetricExporter["selectAggregationTemporality"]>
 
 export type HeadersMap = Record<string, string>
 
@@ -120,60 +115,6 @@ export class DynamicHeaders {
   }
 }
 
-export class RefreshingMetricExporter implements PushMetricExporter {
-  private exporter: PushMetricExporter
-  private headersVersion: number
-
-  constructor(
-    private readonly createExporter: (headers: HeadersMap) => PushMetricExporter,
-    private readonly dynamicHeaders: DynamicHeaders,
-  ) {
-    this.exporter = createExporter(dynamicHeaders.current())
-    this.headersVersion = dynamicHeaders.currentVersion()
-  }
-
-  export(metrics: ResourceMetrics, resultCallback: (result: ExportResult) => void): void {
-    exportWithAuthRetry(this, metrics, resultCallback)
-  }
-
-  forceFlush(): Promise<void> {
-    return this.exporter.forceFlush()
-  }
-
-  shutdown(): Promise<void> {
-    return this.exporter.shutdown()
-  }
-
-  selectAggregationTemporality(
-    instrumentType: Parameters<SelectAggregationTemporality>[0],
-  ): ReturnType<SelectAggregationTemporality> {
-    return this.exporter.selectAggregationTemporality!(instrumentType)
-  }
-
-  selectAggregation(instrumentType: Parameters<SelectAggregation>[0]): ReturnType<SelectAggregation> {
-    return this.exporter.selectAggregation!(instrumentType)
-  }
-
-  _exporter(): PushMetricExporter {
-    return this.exporter
-  }
-
-  _replaceExporter(version: number): void {
-    const old = this.exporter
-    this.exporter = this.createExporter(this.dynamicHeaders.current())
-    this.headersVersion = version
-    old.shutdown().catch(() => {})
-  }
-
-  _refreshHeaders(): Promise<number> {
-    return this.dynamicHeaders.refresh()
-  }
-
-  _headersVersion(): number {
-    return this.headersVersion
-  }
-}
-
 export class RefreshingSpanExporter implements SpanExporter {
   private exporter: SpanExporter
   private headersVersion: number
@@ -199,46 +140,6 @@ export class RefreshingSpanExporter implements SpanExporter {
   }
 
   _exporter(): SpanExporter {
-    return this.exporter
-  }
-
-  _replaceExporter(version: number): void {
-    const old = this.exporter
-    this.exporter = this.createExporter(this.dynamicHeaders.current())
-    this.headersVersion = version
-    old.shutdown().catch(() => {})
-  }
-
-  _refreshHeaders(): Promise<number> {
-    return this.dynamicHeaders.refresh()
-  }
-
-  _headersVersion(): number {
-    return this.headersVersion
-  }
-}
-
-export class RefreshingLogExporter implements LogRecordExporter {
-  private exporter: LogRecordExporter
-  private headersVersion: number
-
-  constructor(
-    private readonly createExporter: (headers: HeadersMap) => LogRecordExporter,
-    private readonly dynamicHeaders: DynamicHeaders,
-  ) {
-    this.exporter = createExporter(dynamicHeaders.current())
-    this.headersVersion = dynamicHeaders.currentVersion()
-  }
-
-  export(logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void): void {
-    exportWithAuthRetry(this, logs, resultCallback)
-  }
-
-  shutdown(): Promise<void> {
-    return this.exporter.shutdown()
-  }
-
-  _exporter(): LogRecordExporter {
     return this.exporter
   }
 

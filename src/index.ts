@@ -1,6 +1,4 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { SeverityNumber } from "@opentelemetry/api-logs"
-import { logs } from "@opentelemetry/api-logs"
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
 import pkg from "../package.json" with { type: "json" }
 import type {
@@ -10,15 +8,11 @@ import type {
   EventSessionStatus,
   EventMessageUpdated,
   EventMessagePartUpdated,
-  EventPermissionUpdated,
-  EventPermissionReplied,
-  EventSessionDiff,
-  EventCommandExecuted,
 } from "@opencode-ai/sdk"
 import { LEVELS, type Level, type HandlerContext, type RunDetails } from "./types.ts"
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
-import { setupOtel, createInstruments, forceFlushOtel } from "./otel.ts"
+import { setupOtel } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
 import {
   handleSessionCreated,
@@ -28,10 +22,8 @@ import {
   handleInteractionStarted,
 } from "./handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
-import { handlePermissionUpdated, handlePermissionReplied } from "./handlers/permission.ts"
-import { handleSessionDiff, handleCommandExecuted } from "./handlers/activity.ts"
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
-import { agentAttrs, getSessionAgentMeta, setBoundedMap } from "./util.ts"
+import { setBoundedMap } from "./util.ts"
 import type { SessionTotals } from "./types.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
 import { createUserIDManager } from "./user-id.ts"
@@ -39,9 +31,8 @@ import { createUserIDManager } from "./user-id.ts"
 const PLUGIN_VERSION: string = (pkg as { version?: string }).version ?? "unknown"
 
 /**
- * OpenCode plugin that exports session telemetry via OpenTelemetry (OTLP over gRPC or HTTP/protobuf).
- * Instruments metrics (sessions, tokens, cost, lines of code, commits, tool durations)
- * and structured log events. All instrumentation is gated on `OPENCODE_ENABLE_TELEMETRY`.
+ * OpenCode plugin that exports traces via OpenTelemetry (OTLP over gRPC or HTTP).
+ * All instrumentation is gated on `OPENCODE_ENABLE_TELEMETRY`.
  */
 export const OtelPlugin: Plugin = async ({ project, client, directory, worktree }, options) => {
   const config = loadConfig(options as OtelPluginOptions)
@@ -62,10 +53,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     version: PLUGIN_VERSION,
     endpoint: config.endpoint,
     protocol: config.protocol,
-    metricsInterval: config.metricsInterval,
-    logsInterval: config.logsInterval,
     spanAttributeCountLimit: config.spanAttributeCountLimit,
-    metricPrefix: config.metricPrefix,
+    tracePrefix: config.tracePrefix,
     headersHelperSet: !!config.otlpHeadersHelper,
     userIDEnabled: config.userIDEnabled,
     userIDTimeout: config.userIDTimeout,
@@ -93,22 +82,14 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const providers = await setupOtel(
     config.endpoint,
     config.protocol,
-    config.metricsInterval,
-    config.logsInterval,
     PLUGIN_VERSION,
     config.otlpHeaders,
     otlpHeadersHelper,
     config.spanAttributeCountLimit,
   )
-  const { meterProvider, loggerProvider, tracerProvider } = providers
+  const { tracerProvider } = providers
   await log("info", "OTel SDK initialized")
 
-  const instruments = createInstruments(config.metricPrefix)
-  const logger = logs.getLogger("com.opencode")
-  const emitLog: HandlerContext["emitLog"] = (record) => {
-    if (!config.logsEnabled) return
-    logger.emit(record)
-  }
   const tracer = trace.getTracer("com.opencode")
   const remoteContext = remoteParentContext(config.traceparent, config.tracestate)
   if (config.traceparent && !remoteContext) {
@@ -116,9 +97,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
   const rootContext = remoteContext ? () => remoteContext : () => ROOT_CONTEXT
   const pendingToolSpans = new Map()
-  const pendingPermissions = new Map()
   const sessionTotals = new Map()
-  const sessionDiffTotals = new Map()
   const activeRunSpans = new Map()
   const interactionSpans = new Map()
   const interactionSpanContexts = new Map()
@@ -139,37 +118,24 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
   const activeMessageSpans = new Map()
   const llmTelemetryOutputs = new Map()
-  const { disabledMetrics, disabledTraces } = config
+  const { disabledTraces } = config
   const commonAttrs = {
     ...parseAttributePairs(config.spanAttributes),
     "project.id": project.id,
   } as const
 
-  if (disabledMetrics.size > 0) {
-    await log("info", "metrics disabled", { disabled: [...disabledMetrics] })
-  }
-
   if (disabledTraces.size > 0) {
     await log("info", "traces disabled", { disabled: [...disabledTraces] })
   }
 
-  if (!config.logsEnabled) {
-    await log("info", "OTLP log events disabled")
-  }
-
   const ctx: HandlerContext = {
     log,
-    emitLog,
-    instruments,
     commonAttrs,
     pendingToolSpans,
-    pendingPermissions,
     sessionTotals,
-    sessionDiffTotals,
-    disabledMetrics,
     disabledTraces,
     tracer,
-    tracePrefix: config.metricPrefix,
+    tracePrefix: config.tracePrefix,
     rootContext,
     activeRunSpans,
     interactionSpans,
@@ -211,15 +177,15 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
 
   async function flushTelemetry(reason: string) {
     if (shuttingDown) return
-    await forceFlushOtel(providers)
-    await log("debug", "otel: telemetry flushed", { reason })
+    await tracerProvider.forceFlush()
+    await log("debug", "otel: traces flushed", { reason })
   }
 
   async function shutdown() {
     if (shuttingDown) return
     shuttingDown = true
-    await forceFlushOtel(providers)
-    await Promise.allSettled([meterProvider.shutdown(), loggerProvider.shutdown(), tracerProvider.shutdown()])
+    await tracerProvider.forceFlush()
+    await tracerProvider.shutdown()
   }
 
   process.on("SIGTERM", () => { shutdown().then(() => process.exit(0)).catch(() => process.exit(1)) })
@@ -272,7 +238,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
       const existingTotals = sessionTotals.get(input.sessionID)
       const details = takeRunDetails(input.sessionID)
       const nextTotals: SessionTotals = {
-        startMs: existingTotals?.startMs ?? startTime,
         tokens: existingTotals?.tokens ?? 0,
         cost: existingTotals?.cost ?? 0,
         messages: existingTotals?.messages ?? 0,
@@ -280,7 +245,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         agentType: details.agentType,
       }
       setBoundedMap(sessionTotals, input.sessionID, nextTotals)
-      const { agentType } = getSessionAgentMeta(input.sessionID, ctx)
       const promptText = output.parts.map((part) => {
         switch (part.type) {
           case "text":
@@ -306,24 +270,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         ctx,
         details,
       )
-      const promptLength = promptText.length
-      emitLog({
-        severityNumber: SeverityNumber.INFO,
-        severityText: "INFO",
-        timestamp: startTime,
-        observedTimestamp: startTime,
-        body: "user_prompt",
-        attributes: {
-          "event.name": "user_prompt",
-          "session.id": input.sessionID,
-          ...agentAttrs(agent, agentType),
-          prompt_length: promptLength,
-          model: input.model
-            ? `${input.model.providerID}/${input.model.modelID}`
-            : "unknown",
-          ...ctx.commonAttrs,
-        },
-      })
     }),
 
     event: safe("event", async ({ event }) => {
@@ -342,18 +288,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           break
         case "session.status":
           handleSessionStatus(event as EventSessionStatus, ctx)
-          break
-        case "session.diff":
-          handleSessionDiff(event as EventSessionDiff, ctx)
-          break
-        case "command.executed":
-          handleCommandExecuted(event as EventCommandExecuted, ctx)
-          break
-        case "permission.updated":
-          handlePermissionUpdated(event as EventPermissionUpdated, ctx)
-          break
-        case "permission.replied":
-          handlePermissionReplied(event as EventPermissionReplied, ctx)
           break
         case "message.updated": {
           const msgEvt = event as EventMessageUpdated

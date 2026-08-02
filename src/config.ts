@@ -1,12 +1,8 @@
 import { LEVELS, type Level } from "./types.ts"
 
-/** Accepted values for `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`. */
-export type MetricsTemporality = "cumulative" | "delta" | "lowmemory"
-
 /** Valid trace types emitted by the plugin. */
 export const TRACE_TYPES = ["session", "llm", "tool"] as const
 
-const VALID_TEMPORALITIES: ReadonlySet<MetricsTemporality> = new Set<MetricsTemporality>(["cumulative", "delta", "lowmemory"])
 const TRACE_DISABLE_ALL_VALUES = new Set(["all", "*", "true", "1"])
 const DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT = 4096
 const DEFAULT_USER_ID_TIMEOUT = 3000
@@ -17,7 +13,6 @@ const MAX_USER_ID_RETRY_COUNT = 10
 /** Configuration values resolved from `OPENCODE_*` environment variables. */
 export type PluginConfig = {
   enabled: boolean
-  logsEnabled: boolean
   endpoint: string
   userIDEnabled: boolean
   userIDEndpoint: string
@@ -26,9 +21,7 @@ export type PluginConfig = {
   userIDRetryCount: number
   userIDCooldown: number
   protocol: "grpc" | "http/protobuf" | "http/json"
-  metricsInterval: number
-  logsInterval: number
-  metricPrefix: string
+  tracePrefix: string
   otlpHeaders: string | undefined
   otlpHeadersHelper: string | undefined
   resourceAttributes: string | undefined
@@ -36,8 +29,6 @@ export type PluginConfig = {
   spanAttributeCountLimit: number
   traceparent: string | undefined
   tracestate: string | undefined
-  metricsTemporality: MetricsTemporality | undefined
-  disabledMetrics: Set<string>
   disabledTraces: Set<string>
   tracePropagationProviders: Set<string>
 }
@@ -67,7 +58,6 @@ export function parseAttributePairs(raw: string | undefined): Record<string, str
  */
 export type OtelPluginOptions = {
   enabled?: boolean
-  logsEnabled?: boolean
   endpoint?: string
   userIDEnabled?: boolean
   userIDEndpoint?: string
@@ -76,9 +66,7 @@ export type OtelPluginOptions = {
   userIDRetryCount?: number
   userIDCooldown?: number
   protocol?: "grpc" | "http/protobuf" | "http/json"
-  metricsInterval?: number
-  logsInterval?: number
-  metricPrefix?: string
+  tracePrefix?: string
   otlpHeaders?: string
   otlpHeadersHelper?: string
   resourceAttributes?: string
@@ -86,8 +74,6 @@ export type OtelPluginOptions = {
   spanAttributeCountLimit?: number
   traceparent?: string
   tracestate?: string
-  metricsTemporality?: MetricsTemporality
-  disabledMetrics?: string[]
   disabledTraces?: string[]
   tracePropagationProviders?: string[]
 }
@@ -126,12 +112,6 @@ function pickProtocol(value: unknown): PluginConfig["protocol"] | undefined {
   return typeof value === "string" && VALID_PROTOCOLS.has(value as PluginConfig["protocol"])
     ? (value as PluginConfig["protocol"])
     : undefined
-}
-
-function pickMetricsTemporality(value: unknown): MetricsTemporality | undefined {
-  if (typeof value !== "string") return undefined
-  const normalized = value.toLowerCase()
-  return VALID_TEMPORALITIES.has(normalized as MetricsTemporality) ? (normalized as MetricsTemporality) : undefined
 }
 
 /** Parses a positive integer from an environment variable, returning `fallback` if absent or invalid. */
@@ -177,10 +157,9 @@ function expandDisabledTraces(values: string[]): Set<string> {
  * variables. For every field a provided option wins over the environment
  * variable, which in turn wins over the built-in default.
  *
- * Copies the resolved headers, resource attributes, and metrics temporality into
- * `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_RESOURCE_ATTRIBUTES`, and
- * `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` so the OTel SDK picks them
- * up automatically when initialised.
+ * Copies the resolved headers and resource attributes into
+ * `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_RESOURCE_ATTRIBUTES` so the OTel SDK
+ * picks them up automatically when initialised.
  */
 export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
   const resolvedOptions = typeof options === "object" && options !== null ? options : {}
@@ -190,33 +169,12 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
   const spanAttributes = pickString(resolvedOptions.spanAttributes) ?? process.env["OPENCODE_SPAN_ATTRIBUTES"]
   const traceparent = pickString(resolvedOptions.traceparent) ?? process.env["OPENCODE_TRACEPARENT"]
   const tracestate = pickString(resolvedOptions.tracestate) ?? process.env["OPENCODE_TRACESTATE"]
-  const optionMetricsTemporality = pickMetricsTemporality(resolvedOptions.metricsTemporality)
-  const envMetricsTemporality = pickMetricsTemporality(process.env["OPENCODE_OTLP_METRICS_TEMPORALITY"])
-  const metricsTemporality = optionMetricsTemporality ?? envMetricsTemporality
   const protocol = pickProtocol(resolvedOptions.protocol)
     ?? pickProtocol(process.env["OPENCODE_OTLP_PROTOCOL"])
     ?? "grpc"
 
-  if (
-    optionMetricsTemporality === undefined
-    && envMetricsTemporality === undefined
-    && pickString(process.env["OPENCODE_OTLP_METRICS_TEMPORALITY"])
-  ) {
-    console.warn(
-      `[opencode-plugin-otel] Invalid metrics temporality "${process.env["OPENCODE_OTLP_METRICS_TEMPORALITY"]}". ` +
-        `Expected one of: cumulative, delta, lowmemory. Value ignored.`,
-    )
-  }
-
-  if (metricsTemporality) process.env["OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"] = metricsTemporality
-
   if (otlpHeaders) process.env["OTEL_EXPORTER_OTLP_HEADERS"] = otlpHeaders
   if (resourceAttributes) process.env["OTEL_RESOURCE_ATTRIBUTES"] = resourceAttributes
-
-  const optionMetrics = pickStringList(resolvedOptions.disabledMetrics)
-  const disabledMetrics = new Set(
-    optionMetrics ? normalizeList(optionMetrics) : splitList(process.env["OPENCODE_DISABLE_METRICS"]),
-  )
 
   const optionTraces = pickStringList(resolvedOptions.disabledTraces)
   const disabledTraces = expandDisabledTraces(optionTraces ?? splitList(process.env["OPENCODE_DISABLE_TRACES"]))
@@ -230,7 +188,6 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
 
   return {
     enabled: pickBoolean(resolvedOptions.enabled) ?? hasNonEmptyEnv("OPENCODE_ENABLE_TELEMETRY"),
-    logsEnabled: pickBoolean(resolvedOptions.logsEnabled) ?? !hasNonEmptyEnv("OPENCODE_DISABLE_LOGS"),
     endpoint: pickString(resolvedOptions.endpoint) ?? process.env["OPENCODE_OTLP_ENDPOINT"] ?? "http://localhost:4317",
     userIDEnabled: pickBoolean(resolvedOptions.userIDEnabled)
       ?? pickBooleanString(process.env["OPENCODE_USER_ID_ENABLED"])
@@ -247,19 +204,15 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
     userIDCooldown: pickNonNegativeInt(resolvedOptions.userIDCooldown)
       ?? parseEnvNonNegativeInt("OPENCODE_USER_ID_COOLDOWN", DEFAULT_USER_ID_COOLDOWN),
     protocol,
-    metricsInterval: pickPositiveInt(resolvedOptions.metricsInterval) ?? parseEnvInt("OPENCODE_OTLP_METRICS_INTERVAL", 60000),
-    logsInterval: pickPositiveInt(resolvedOptions.logsInterval) ?? parseEnvInt("OPENCODE_OTLP_LOGS_INTERVAL", 5000),
     spanAttributeCountLimit: pickPositiveInt(resolvedOptions.spanAttributeCountLimit)
       ?? parseEnvInt("OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT", DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT),
-    metricPrefix: pickString(resolvedOptions.metricPrefix) ?? process.env["OPENCODE_METRIC_PREFIX"] ?? "opencode.",
+    tracePrefix: pickString(resolvedOptions.tracePrefix) ?? process.env["OPENCODE_TRACE_PREFIX"] ?? "opencode.",
     otlpHeaders,
     otlpHeadersHelper,
     resourceAttributes,
     spanAttributes,
     traceparent,
     tracestate,
-    metricsTemporality,
-    disabledMetrics,
     disabledTraces,
     tracePropagationProviders,
   }

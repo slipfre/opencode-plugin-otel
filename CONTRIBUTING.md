@@ -40,16 +40,15 @@ opencode loads TypeScript natively via Bun, so there is no build step required d
 ```text
 src/
 ├── index.ts              — Plugin entrypoint, wires everything together
-├── types.ts              — Shared types (Level, HandlerContext, Instruments, etc.)
+├── types.ts              — Shared types (Level, HandlerContext, trace state, etc.)
 ├── config.ts             — Environment config loading and log level resolution
-├── otel.ts               — OTel SDK setup, resource construction, instrument creation
+├── otel.ts               — OTel trace SDK setup and resource construction
 ├── probe.ts              — TCP connectivity probe for the OTLP endpoint
 ├── util.ts               — Utility functions (errorSummary, setBoundedMap)
 └── handlers/
     ├── session.ts        — session.created / session.idle / session.error
     ├── message.ts        — message.updated / message.part.updated
-    ├── permission.ts     — permission.updated / permission.replied
-    └── activity.ts       — session.diff / command.executed
+    └── chat-headers.ts   — W3C trace-context propagation
 ```
 
 ## Testing locally with a collector
@@ -61,7 +60,7 @@ docker run --rm -p 4317:4317 \
   otel/opentelemetry-collector:latest
 ```
 
-Then set `OPENCODE_ENABLE_TELEMETRY=1` and start opencode. The collector will print received spans and metrics to stdout.
+Then set `OPENCODE_ENABLE_TELEMETRY=1` and start opencode. The collector will print received spans to stdout.
 
 ## Commit messages
 

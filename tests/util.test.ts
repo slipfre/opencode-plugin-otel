@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { errorSummary, genAiProviderName, setBoundedMap, isMetricEnabled, isTraceEnabled } from "../src/util.ts"
+import { errorSummary, genAiProviderName, setBoundedMap, isTraceEnabled } from "../src/util.ts"
 import { MAX_PENDING } from "../src/types.ts"
 
 describe("errorSummary", () => {
@@ -94,28 +94,6 @@ describe("setBoundedMap", () => {
     expect(map.size).toBe(MAX_PENDING)
     expect(map.get("key-10")).toBe(1000)
     expect(map.has("key-0")).toBe(true)
-  })
-})
-
-describe("isMetricEnabled", () => {
-  test("returns true when disabled set is empty", () => {
-    expect(isMetricEnabled("session.count", { disabledMetrics: new Set() })).toBe(true)
-  })
-
-  test("returns false when metric is in the disabled set", () => {
-    expect(isMetricEnabled("session.count", { disabledMetrics: new Set(["session.count"]) })).toBe(false)
-  })
-
-  test("returns true when a different metric is disabled", () => {
-    expect(isMetricEnabled("session.count", { disabledMetrics: new Set(["cache.count"]) })).toBe(true)
-  })
-
-  test("is case-sensitive — does not match mismatched case", () => {
-    expect(isMetricEnabled("session.count", { disabledMetrics: new Set(["Session.Count"]) })).toBe(true)
-  })
-
-  test("unknown metric names in disabled set do not affect known metrics", () => {
-    expect(isMetricEnabled("retry.count", { disabledMetrics: new Set(["does.not.exist"]) })).toBe(true)
   })
 })
 

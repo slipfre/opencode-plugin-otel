@@ -1,40 +1,18 @@
 import { describe, test, expect, afterEach } from "bun:test"
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-grpc"
-import { OTLPLogExporter as OTLPHttpLogExporter } from "@opentelemetry/exporter-logs-otlp-http"
-import { OTLPLogExporter as OTLPProtoLogExporter } from "@opentelemetry/exporter-logs-otlp-proto"
-import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-grpc"
-import { OTLPMetricExporter as OTLPHttpMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
-import { OTLPMetricExporter as OTLPProtoMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-grpc"
 import { OTLPTraceExporter as OTLPHttpTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { OTLPTraceExporter as OTLPProtoTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto"
-import { buildResource, forceFlushOtel, setupOtel, type OtelProviders } from "../src/otel.ts"
+import { buildResource, setupOtel, type OtelProviders } from "../src/otel.ts"
 
 let providers: OtelProviders | undefined
 
-function exportersOf(currentProviders: OtelProviders) {
-  const meterProvider = currentProviders.meterProvider as unknown as {
-    _sharedState: { metricCollectors: Array<{ _metricReader: { _exporter: unknown } }> }
-  }
-  const loggerProvider = currentProviders.loggerProvider as unknown as {
-    _sharedState: { activeProcessor: { processors: Array<{ _exporter: unknown }> } }
-  }
+function exporterOf(currentProviders: OtelProviders) {
   const tracerProvider = currentProviders.tracerProvider as unknown as {
     _activeSpanProcessor: { _spanProcessors: Array<{ _exporter: unknown }> }
   }
-  const metricCollector = meterProvider._sharedState.metricCollectors[0]
-  const logProcessor = loggerProvider._sharedState.activeProcessor.processors[0]
   const spanProcessor = tracerProvider._activeSpanProcessor._spanProcessors[0]
-
-  if (!metricCollector || !logProcessor || !spanProcessor) {
-    throw new Error("Expected OTEL providers to have active metric/log/trace exporters")
-  }
-
-  return {
-    metric: metricCollector._metricReader._exporter,
-    log: logProcessor._exporter,
-    trace: spanProcessor._exporter,
-  }
+  if (!spanProcessor) throw new Error("Expected an active trace exporter")
+  return spanProcessor._exporter
 }
 
 describe("buildResource", () => {
@@ -59,28 +37,24 @@ describe("buildResource", () => {
 
   test("merges OTEL_RESOURCE_ATTRIBUTES from env", () => {
     process.env["OTEL_RESOURCE_ATTRIBUTES"] = "team=platform,env=prod"
-    const resource = buildResource("0.0.1")
-    const attrs = resource.attributes
+    const attrs = buildResource("0.0.1").attributes
     expect(attrs["team"]).toBe("platform")
     expect(attrs["env"]).toBe("prod")
   })
 
   test("trims whitespace in resource attributes", () => {
     process.env["OTEL_RESOURCE_ATTRIBUTES"] = " team = platform "
-    const resource = buildResource("0.0.1")
-    expect(resource.attributes["team"]).toBe("platform")
+    expect(buildResource("0.0.1").attributes["team"]).toBe("platform")
   })
 
   test("resource attribute values may contain equals signs", () => {
     process.env["OTEL_RESOURCE_ATTRIBUTES"] = "auth=Bearer abc=123"
-    const resource = buildResource("0.0.1")
-    expect(resource.attributes["auth"]).toBe("Bearer abc=123")
+    expect(buildResource("0.0.1").attributes["auth"]).toBe("Bearer abc=123")
   })
 
   test("env resource attributes override defaults", () => {
     process.env["OTEL_RESOURCE_ATTRIBUTES"] = "service.name=my-override"
-    const resource = buildResource("0.0.1")
-    expect(resource.attributes["service.name"]).toBe("my-override")
+    expect(buildResource("0.0.1").attributes["service.name"]).toBe("my-override")
   })
 })
 
@@ -88,63 +62,30 @@ describe("setupOtel", () => {
   afterEach(async () => {
     const current = providers
     providers = undefined
-    if (!current) return
-    await Promise.allSettled([
-      current.tracerProvider.shutdown(),
-      current.loggerProvider.shutdown(),
-      current.meterProvider.shutdown(),
-    ])
+    if (current) await current.tracerProvider.shutdown()
   })
 
-  test("uses protobuf HTTP exporters for http/protobuf", async () => {
-    providers = await setupOtel("http://collector:4318", "http/protobuf", 60000, 5000, "1.2.3")
-    const exporters = exportersOf(providers)
-
-    expect(exporters.metric).toBeInstanceOf(OTLPProtoMetricExporter)
-    expect(exporters.log).toBeInstanceOf(OTLPProtoLogExporter)
-    expect(exporters.trace).toBeInstanceOf(OTLPProtoTraceExporter)
+  test("uses the protobuf HTTP exporter for http/protobuf", async () => {
+    providers = await setupOtel("http://collector:4318", "http/protobuf", "1.2.3")
+    expect(exporterOf(providers)).toBeInstanceOf(OTLPProtoTraceExporter)
   })
 
-  test("uses gRPC exporters for grpc", async () => {
-    providers = await setupOtel("http://collector:4317", "grpc", 60000, 5000, "1.2.3")
-    const exporters = exportersOf(providers)
-
-    expect(exporters.metric).toBeInstanceOf(OTLPMetricExporter)
-    expect(exporters.log).toBeInstanceOf(OTLPLogExporter)
-    expect(exporters.trace).toBeInstanceOf(OTLPTraceExporter)
+  test("uses the gRPC exporter for grpc", async () => {
+    providers = await setupOtel("http://collector:4317", "grpc", "1.2.3")
+    expect(exporterOf(providers)).toBeInstanceOf(OTLPTraceExporter)
   })
 
-  test("uses JSON HTTP exporters for http/json", async () => {
-    providers = await setupOtel("http://collector:4318", "http/json", 60000, 5000, "1.2.3")
-    const exporters = exportersOf(providers)
-
-    expect(exporters.metric).toBeInstanceOf(OTLPHttpMetricExporter)
-    expect(exporters.log).toBeInstanceOf(OTLPHttpLogExporter)
-    expect(exporters.trace).toBeInstanceOf(OTLPHttpTraceExporter)
+  test("uses the JSON HTTP exporter for http/json", async () => {
+    providers = await setupOtel("http://collector:4318", "http/json", "1.2.3")
+    expect(exporterOf(providers)).toBeInstanceOf(OTLPHttpTraceExporter)
   })
 
   test("supports more than 128 span attributes", async () => {
-    providers = await setupOtel("http://collector:4317", "grpc", 60000, 5000, "1.2.3")
+    providers = await setupOtel("http://collector:4317", "grpc", "1.2.3")
     const span = providers.tracerProvider.getTracer("test").startSpan("many-attributes")
     for (let index = 0; index < 256; index++) span.setAttribute(`attribute.${index}`, index)
     const readable = span as unknown as { attributes: Record<string, unknown>; droppedAttributesCount: number }
     expect(readable.attributes["attribute.255"]).toBe(255)
     expect(readable.droppedAttributesCount).toBe(0)
-    span.end()
-  })
-})
-
-describe("forceFlushOtel", () => {
-  test("flushes metrics, logs, and traces", async () => {
-    const calls: string[] = []
-    const fakeProviders = {
-      meterProvider: { forceFlush: async () => { calls.push("metrics") } },
-      loggerProvider: { forceFlush: async () => { calls.push("logs") } },
-      tracerProvider: { forceFlush: async () => { calls.push("traces") } },
-    } as unknown as OtelProviders
-
-    await forceFlushOtel(fakeProviders)
-
-    expect(calls.sort()).toEqual(["logs", "metrics", "traces"])
   })
 })

@@ -1,5 +1,4 @@
-import type { Context, Counter, Gauge, Histogram, Span, SpanContext, Tracer } from "@opentelemetry/api"
-import type { LogRecord } from "@opentelemetry/api-logs"
+import type { Context, Span, SpanContext, Tracer } from "@opentelemetry/api"
 
 /** Numeric priority map for log levels; higher value = higher severity. */
 export const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const
@@ -20,7 +19,7 @@ export type PluginLogger = (
   extra?: Record<string, unknown>,
 ) => Promise<void>
 
-/** OTel attributes common to every emitted span, log, and metric. */
+/** OTel attributes common to every emitted span. */
 export type CommonAttrs = Readonly<Record<string, string>>
 
 /** In-flight tool execution tracked between `running` and `completed`/`error` part updates. */
@@ -29,32 +28,6 @@ export type PendingToolSpan = {
   sessionID: string
   startMs: number
   span?: Span
-}
-
-/** Permission prompt tracked between `permission.updated` and `permission.replied`. */
-export type PendingPermission = {
-  type: string
-  title: string
-  sessionID: string
-}
-
-/** OTel metric instruments created once at plugin startup and shared via `HandlerContext`. */
-export type Instruments = {
-  sessionCounter: Counter
-  tokenCounter: Counter
-  costCounter: Counter
-  linesCounter: Counter
-  linesTotalGauge: Gauge
-  commitCounter: Counter
-  toolDurationHistogram: Histogram
-  cacheCounter: Counter
-  sessionDurationHistogram: Histogram
-  messageCounter: Counter
-  sessionTokenGauge: Histogram
-  sessionCostGauge: Histogram
-  modelUsageCounter: Counter
-  retryCounter: Counter
-  subtaskCounter: Counter
 }
 
 /** Session role emitted by opencode: either the primary/root agent or a spawned subagent. */
@@ -67,9 +40,8 @@ export type RunDetails = {
   taskSpanContext?: SpanContext
 }
 
-/** Accumulated per-session totals used for gauge snapshots on session.idle. */
+/** Accumulated per-session totals attached to the run span on session.idle. */
 export type SessionTotals = {
-  startMs: number
   tokens: number
   cost: number
   messages: number
@@ -118,14 +90,9 @@ export type LlmTelemetryBindings = {
 /** Shared context threaded through every event handler. */
 export type HandlerContext = {
   log: PluginLogger
-  emitLog: (record: LogRecord) => void
-  instruments: Instruments
   commonAttrs: CommonAttrs
   pendingToolSpans: Map<string, PendingToolSpan>
-  pendingPermissions: Map<string, PendingPermission>
   sessionTotals: Map<string, SessionTotals>
-  sessionDiffTotals: Map<string, { additions: number; deletions: number }>
-  disabledMetrics: Set<string>
   disabledTraces: Set<string>
   tracer: Tracer
   tracePrefix: string
