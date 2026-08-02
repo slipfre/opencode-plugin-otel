@@ -1021,31 +1021,10 @@ describe("orphaned span cleanup", () => {
 })
 
 describe("OPENCODE_DISABLE_TRACES=session", () => {
-  test("session traces are not started", () => {
+  test("session value does not disable run and interaction spans", () => {
     const { ctx, tracer } = makeCtx("proj_test", ["session"])
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
-    expect(tracer.spans).toHaveLength(0)
-  })
-
-  test("session.idle does not throw when no run span exists", () => {
-    const { ctx } = makeCtx("proj_test", ["session"])
-    handleSessionCreated(makeSessionCreated("ses_1"), ctx)
-    expect(() => handleSessionIdle(makeSessionIdle("ses_1"), ctx)).not.toThrow()
-  })
-
-  test("session.error does not throw when no run span exists", () => {
-    const { ctx } = makeCtx("proj_test", ["session"])
-    handleSessionCreated(makeSessionCreated("ses_1"), ctx)
-    expect(() => handleSessionError(makeSessionError("ses_1"), ctx)).not.toThrow()
-  })
-
-  test("llm spans become root spans (no parent) when session traces disabled but llm enabled", () => {
-    const { ctx, tracer } = makeCtx("proj_test", ["session"])
-    handleSessionCreated(makeSessionCreated("ses_1"), ctx)
-    startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
-    expect(tracer.spans).toHaveLength(1)
-    expect(tracer.spans[0]!.name).toBe("opencode.llm")
-    expect(tracer.spans[0]!.parentSpan).toBeUndefined()
+    expect(tracer.spans.map(span => span.name)).toEqual(["opencode.run", "opencode.interaction"])
   })
 })
 

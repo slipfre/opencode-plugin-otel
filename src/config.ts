@@ -1,7 +1,7 @@
 import { LEVELS, type Level } from "./types.ts"
 
 /** Valid trace types emitted by the plugin. */
-export const TRACE_TYPES = ["session", "llm", "tool"] as const
+export const TRACE_TYPES = ["llm", "tool"] as const
 
 const TRACE_DISABLE_ALL_VALUES = new Set(["all", "*", "true", "1"])
 const DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT = 4096

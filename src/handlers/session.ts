@@ -17,7 +17,6 @@ import {
 import {
   errorSummary,
   setBoundedMap,
-  isTraceEnabled,
   resolveSessionTraceContext,
 } from "../util.ts"
 import type { ActiveRunSpan, HandlerContext, RunDetails, SessionAgentType } from "../types.ts"
@@ -47,7 +46,6 @@ function ensureRunStarted(
   ctx: HandlerContext,
   details?: RunDetails,
 ) {
-  if (!isTraceEnabled("session", ctx)) return
   const parentSessionID = details?.parentSessionID ?? ctx.sessionParents.get(sessionID)
   const agentType: SessionAgentType = details?.agentType ?? (parentSessionID ? "subagent" : "primary")
   const isSubagent = agentType === "subagent"
@@ -117,7 +115,6 @@ export function handleInteractionStarted(
   if (!existing && ctx.interactionSpanContexts.has(interactionID)) return
   ctx.activeInteractions.set(sessionID, interactionID)
   if (promptText) setBoundedMap(ctx.interactionInputs, interactionID, promptText)
-  if (!isTraceEnabled("session", ctx)) return
   const run = ensureRunStarted(sessionID, agent, startTime, ctx, details)
   if (run) {
     run.interactionIDs.add(interactionID)

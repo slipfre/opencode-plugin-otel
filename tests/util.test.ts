@@ -99,11 +99,11 @@ describe("setBoundedMap", () => {
 
 describe("isTraceEnabled", () => {
   test("returns true when disabled set is empty", () => {
-    expect(isTraceEnabled("session", { disabledTraces: new Set() })).toBe(true)
+    expect(isTraceEnabled("llm", { disabledTraces: new Set() })).toBe(true)
   })
 
   test("returns false when trace type is in the disabled set", () => {
-    expect(isTraceEnabled("session", { disabledTraces: new Set(["session"]) })).toBe(false)
+    expect(isTraceEnabled("tool", { disabledTraces: new Set(["tool"]) })).toBe(false)
   })
 
   test("returns false for llm when llm is disabled", () => {
@@ -115,11 +115,11 @@ describe("isTraceEnabled", () => {
   })
 
   test("returns true when a different trace type is disabled", () => {
-    expect(isTraceEnabled("session", { disabledTraces: new Set(["tool"]) })).toBe(true)
+    expect(isTraceEnabled("llm", { disabledTraces: new Set(["tool"]) })).toBe(true)
   })
 
   test("is case-sensitive — does not match mismatched case", () => {
-    expect(isTraceEnabled("session", { disabledTraces: new Set(["Session"]) })).toBe(true)
+    expect(isTraceEnabled("llm", { disabledTraces: new Set(["LLM"]) })).toBe(true)
   })
 
   test("unknown trace names in disabled set do not affect known types", () => {
