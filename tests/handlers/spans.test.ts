@@ -302,10 +302,9 @@ describe("run and interaction spans", () => {
       input: { subagent_type: "review" },
       metadata: { parentSessionId: "ses_parent", sessionId: "ses_child" },
     }), ctx)
-    const details = ctx.pendingSubagentRuns.get("ses_child")!
-    ctx.pendingSubagentRuns.delete("ses_child")
-    handleInteractionStarted("user_child", "ses_child", "review", "child prompt", "anthropic/claude", 1200, ctx, details)
+    handleInteractionStarted("user_child", "ses_child", "review", "child prompt", "anthropic/claude", 1200, ctx)
 
+    expect(ctx.pendingSubagentRuns.has("ses_child")).toBe(false)
     expect(tracer.spans).toHaveLength(5)
     expect(tracer.spans[2]!.name).toBe("opencode.tool.task")
     expect(tracer.spans[3]!.name).toBe("opencode.run")
@@ -326,8 +325,7 @@ describe("run and interaction spans", () => {
       input: { subagent_type: "review", task_id: "ses_existing" },
       metadata: { parentSessionId: "ses_parent", sessionId: "ses_existing" },
     }), ctx)
-    const details = ctx.pendingSubagentRuns.get("ses_existing")!
-    handleInteractionStarted("user_child", "ses_existing", "review", "resume", "anthropic/claude", 1200, ctx, details)
+    handleInteractionStarted("user_child", "ses_existing", "review", "resume", "anthropic/claude", 1200, ctx)
 
     expect(tracer.spans[3]!.parentSpanContext?.spanId).toBe(tracer.spans[2]!.spanContext().spanId)
     expect(tracer.spans[3]!.attributes["task.call_id"]).toBe("call_resume")
@@ -354,7 +352,6 @@ describe("run and interaction spans", () => {
       "anthropic/claude",
       1100,
       ctx,
-      ctx.pendingSubagentRuns.get("ses_one")!,
     )
     handleInteractionStarted(
       "user_two",
@@ -364,7 +361,6 @@ describe("run and interaction spans", () => {
       "anthropic/claude",
       1200,
       ctx,
-      ctx.pendingSubagentRuns.get("ses_two")!,
     )
 
     expect(tracer.spans[4]!.parentSpanContext?.spanId).toBe(tracer.spans[2]!.spanContext().spanId)
@@ -914,7 +910,8 @@ describe("message (LLM) spans", () => {
 
   test("handleMessageUpdated sets OpenInference token attributes on span", () => {
     const { ctx, tracer } = makeCtx()
-    handleInteractionStarted("user_1", "ses_1", "review", "prompt", "anthropic/claude", 900, ctx, { agentType: "subagent" })
+    handleSessionCreated(makeSessionCreated("ses_1", 900, "ses_parent"), ctx)
+    handleInteractionStarted("user_1", "ses_1", "review", "prompt", "anthropic/claude", 900, ctx)
     startMessageSpan("ses_1", "msg_1", "user_1", "claude-3-5-sonnet", "anthropic", 1000, ctx)
     handleMessageUpdated(
       makeAssistantMessageUpdated({
@@ -1080,7 +1077,6 @@ describe("OPENCODE_DISABLE_TRACES=tool", () => {
       "anthropic/claude",
       1100,
       ctx,
-      ctx.pendingSubagentRuns.get("ses_child")!,
     )
 
     expect(tracer.spans).toHaveLength(4)

@@ -1,6 +1,15 @@
 import { describe, test, expect } from "bun:test"
-import { errorSummary, genAiProviderName, setBoundedMap, isTraceEnabled } from "../src/util.ts"
+import { trace } from "@opentelemetry/api"
+import {
+  errorSummary,
+  genAiProviderName,
+  setBoundedMap,
+  isTraceEnabled,
+  resolveInteractionTraceContext,
+  resolveSessionTraceContext,
+} from "../src/util.ts"
 import { MAX_PENDING } from "../src/types.ts"
+import { makeCtx } from "./helpers.ts"
 
 describe("errorSummary", () => {
   test("returns 'unknown' for undefined", () => {
@@ -124,5 +133,41 @@ describe("isTraceEnabled", () => {
 
   test("unknown trace names in disabled set do not affect known types", () => {
     expect(isTraceEnabled("llm", { disabledTraces: new Set(["does_not_exist"]) })).toBe(true)
+  })
+})
+
+describe("trace context resolution", () => {
+  test("resolves a live interaction span", () => {
+    const { ctx } = makeCtx()
+    const interaction = ctx.tracer.startSpan("interaction")
+    setBoundedMap(ctx.interactionSpans, "user_1", interaction)
+
+    expect(trace.getSpan(resolveInteractionTraceContext("user_1", ctx))).toBe(interaction)
+  })
+
+  test("resolves the retained context of an ended interaction", () => {
+    const { ctx } = makeCtx()
+    const interaction = ctx.tracer.startSpan("interaction")
+    setBoundedMap(ctx.interactionSpanContexts, "user_1", interaction.spanContext())
+
+    expect(trace.getSpanContext(resolveInteractionTraceContext("user_1", ctx))?.spanId)
+      .toBe(interaction.spanContext().spanId)
+  })
+
+  test("falls back from the session interaction to the active run", () => {
+    const { ctx } = makeCtx()
+    const run = ctx.tracer.startSpan("run")
+    setBoundedMap(ctx.activeRunSpans, "ses_1", {
+      span: run,
+      agent: "build",
+      agentType: "primary",
+      tokens: 0,
+      cost: 0,
+      messages: 0,
+      interactionIDs: new Set(),
+      interactionIO: new Map(),
+    })
+
+    expect(trace.getSpan(resolveSessionTraceContext("ses_1", ctx))).toBe(run)
   })
 })

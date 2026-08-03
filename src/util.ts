@@ -51,18 +51,12 @@ export function resolveInteractionTraceContext(
   return interactionSpanContext ? trace.setSpanContext(baseCtx, interactionSpanContext) : baseCtx
 }
 
-/** Resolves the best available trace parent for a session event or message/tool child span. */
+/** Resolves the best available trace parent for the current session execution. */
 export function resolveSessionTraceContext(
   sessionID: string,
   ctx: HandlerContext,
-  input?: { assistantMessageID?: string; interactionID?: string },
 ) {
   const baseCtx = ctx.rootContext()
-  if (input?.interactionID) return resolveInteractionTraceContext(input.interactionID, ctx)
-  const assistantInteractionID = input?.assistantMessageID
-    ? ctx.assistantInteractions.get(input.assistantMessageID)
-    : undefined
-  if (assistantInteractionID) return resolveInteractionTraceContext(assistantInteractionID, ctx)
   const activeInteractionID = ctx.activeInteractions.get(sessionID)
   if (activeInteractionID) return resolveInteractionTraceContext(activeInteractionID, ctx)
   const activeRun = ctx.activeRunSpans.get(sessionID)

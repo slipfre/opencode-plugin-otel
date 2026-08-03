@@ -1,5 +1,5 @@
 import { SpanStatusCode, trace } from "@opentelemetry/api"
-import type { EventSessionCreated, EventSessionIdle, EventSessionError, EventSessionStatus } from "@opencode-ai/sdk"
+import type { EventSessionCreated, EventSessionIdle, EventSessionError } from "@opencode-ai/sdk"
 import {
   AGENT_NAME,
   INPUT_MIME_TYPE,
@@ -37,6 +37,19 @@ function setRunIOAttributes(run: ActiveRunSpan) {
         }
       : {}),
   })
+}
+
+function takeRunDetails(sessionID: string, ctx: HandlerContext): RunDetails {
+  const details = ctx.pendingSubagentRuns.get(sessionID)
+  if (details) {
+    ctx.pendingSubagentRuns.delete(sessionID)
+    return details
+  }
+  const parentSessionID = ctx.sessionParents.get(sessionID)
+  return {
+    agentType: parentSessionID ? "subagent" : "primary",
+    ...(parentSessionID ? { parentSessionID } : {}),
+  }
 }
 
 function ensureRunStarted(
@@ -109,8 +122,8 @@ export function handleInteractionStarted(
   model: string,
   startTime: number,
   ctx: HandlerContext,
-  details?: RunDetails,
 ) {
+  const details = takeRunDetails(sessionID, ctx)
   const existing = ctx.interactionSpans.get(interactionID)
   if (!existing && ctx.interactionSpanContexts.has(interactionID)) return
   ctx.activeInteractions.set(sessionID, interactionID)
@@ -124,8 +137,8 @@ export function handleInteractionStarted(
       input: promptText || interactionIO?.input || "",
     })
   }
-  const parentSessionID = details?.parentSessionID ?? ctx.sessionParents.get(sessionID)
-  const agentType: SessionAgentType = details?.agentType ?? (parentSessionID ? "subagent" : "primary")
+  const parentSessionID = details.parentSessionID
+  const agentType: SessionAgentType = details.agentType
   const isSubagent = agentType === "subagent"
   if (existing) {
     existing.setAttributes({
@@ -300,12 +313,4 @@ export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
   }
 
   ctx.log("error", "otel: session.error", { sessionID, error })
-}
-
-/** Starts a run span when the session enters the busy state. */
-export function handleSessionStatus(e: EventSessionStatus, ctx: HandlerContext) {
-  const { sessionID, status } = e.properties
-  if (status.type === "busy") {
-    ensureRunStarted(sessionID, "unknown", Date.now(), ctx)
-  }
 }

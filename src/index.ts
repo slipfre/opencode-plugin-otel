@@ -5,11 +5,10 @@ import type {
   EventSessionCreated,
   EventSessionIdle,
   EventSessionError,
-  EventSessionStatus,
   EventMessageUpdated,
   EventMessagePartUpdated,
 } from "@opencode-ai/sdk"
-import { LEVELS, type Level, type HandlerContext, type RunDetails } from "./types.ts"
+import { LEVELS, type Level, type HandlerContext } from "./types.ts"
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
 import { setupOtel } from "./otel.ts"
@@ -18,7 +17,6 @@ import {
   handleSessionCreated,
   handleSessionIdle,
   handleSessionError,
-  handleSessionStatus,
   handleInteractionStarted,
 } from "./handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
@@ -158,19 +156,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
 
   let shuttingDown = false
 
-  function takeRunDetails(sessionID: string): RunDetails {
-    const details = pendingSubagentRuns.get(sessionID)
-    if (details) {
-      pendingSubagentRuns.delete(sessionID)
-      return details
-    }
-    const parentSessionID = sessionParents.get(sessionID)
-    return {
-      agentType: parentSessionID ? "subagent" : "primary",
-      ...(parentSessionID ? { parentSessionID } : {}),
-    }
-  }
-
   async function flushTelemetry(reason: string) {
     if (shuttingDown) return
     await tracerProvider.forceFlush()
@@ -231,7 +216,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
       userIDManager.refreshInBackground()
       const agent = input.agent ?? "unknown"
       const startTime = Date.now()
-      const details = takeRunDetails(input.sessionID)
       const promptText = output.parts.map((part) => {
         switch (part.type) {
           case "text":
@@ -255,7 +239,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         model,
         startTime,
         ctx,
-        details,
       )
     }),
 
@@ -272,9 +255,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         case "session.error":
           handleSessionError(event as EventSessionError, ctx)
           await flushTelemetry("session.error")
-          break
-        case "session.status":
-          handleSessionStatus(event as EventSessionStatus, ctx)
           break
         case "message.updated": {
           const msgEvt = event as EventMessageUpdated

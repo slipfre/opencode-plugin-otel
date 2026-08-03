@@ -34,13 +34,21 @@ import {
   setBoundedMap,
   accumulateInteractionTotals,
   isTraceEnabled,
+  resolveInteractionTraceContext,
   resolveSessionTraceContext,
 } from "../util.ts"
-import type { HandlerContext, RunDetails, SessionAgentType } from "../types.ts"
+import type { HandlerContext, SessionAgentType } from "../types.ts"
 import { endInteractionSpan } from "../interaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
+
+function resolveToolTraceContext(sessionID: string, assistantMessageID: string, ctx: HandlerContext) {
+  const interactionID = ctx.assistantInteractions.get(assistantMessageID)
+  return interactionID
+    ? resolveInteractionTraceContext(interactionID, ctx)
+    : resolveSessionTraceContext(sessionID, ctx)
+}
 
 function getRunAgentMeta(
   sessionID: string,
@@ -261,9 +269,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
                   ...ctx.commonAttrs,
                 },
               },
-              resolveSessionTraceContext(toolPart.sessionID, ctx, {
-                assistantMessageID: toolPart.messageID,
-              }),
+              resolveToolTraceContext(toolPart.sessionID, toolPart.messageID, ctx),
             )
           })()
         : undefined
@@ -307,9 +313,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
               ...ctx.commonAttrs,
             },
           },
-          resolveSessionTraceContext(toolPart.sessionID, ctx, {
-            assistantMessageID: toolPart.messageID,
-          }),
+          resolveToolTraceContext(toolPart.sessionID, toolPart.messageID, ctx),
         )
       })()
       toolSpan.setAttributes({ [AGENT_NAME]: agentName, "agent.type": agentType })
@@ -397,7 +401,7 @@ export function startMessageSpan(
         ...ctx.commonAttrs,
       },
     },
-    resolveSessionTraceContext(sessionID, ctx, { interactionID: parentID, assistantMessageID: messageID }),
+    resolveInteractionTraceContext(parentID, ctx),
   )
   setBoundedMap(ctx.messageSpans, msgKey, msgSpan)
   const requestKey = `${sessionID}:${parentID}`
