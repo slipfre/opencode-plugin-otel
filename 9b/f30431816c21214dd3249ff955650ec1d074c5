@@ -1,0 +1,84 @@
+src/index.ts
+  s_3fc4ebb643638d::t_b07a94d2739a81 2,11,89,172-178,198-201
+eslint.config.mjs
+  s_3fc4ebb643638d::t_47c0a2b63d9ac8 7
+src/headers.ts
+  s_3fc4ebb643638d::t_c2013ba4b9d752 87-88,90-91
+  s_3fc4ebb643638d::t_45084f845d4e14 89
+.github/workflows/ci.yml
+  s_3fc4ebb643638d::t_13bd1ff6bdd8af 41-69
+  s_3fc4ebb643638d::t_8a00b842b79220 40
+tests/headers.test.ts
+  s_3fc4ebb643638d::t_fd645c0ac1329c 109
+  s_3fc4ebb643638d::t_c2013ba4b9d752 16-22,82-85,95-98,102,107-108,110,120-123
+e2e/harness.ts
+  s_3fc4ebb643638d::t_77e2a89eca6d13 78
+  s_3fc4ebb643638d::t_d75d3eedcc2acc 42,184-186
+  s_3fc4ebb643638d::t_81291f756635e6 65,69-75,93,130,197
+  s_3fc4ebb643638d::t_27e25e20fe03a5 143-145
+  s_3fc4ebb643638d::t_108fc714e6189e 39-41
+  s_3fc4ebb643638d::t_fcf81b7d837977 43-45,62-64
+  s_3fc4ebb643638d::t_e45d4f4adbe97a 66-68
+  s_3fc4ebb643638d::t_89ab5c787cce49 76-77
+  s_3fc4ebb643638d::t_21b6d70608e931 79-81,90-92
+  s_3fc4ebb643638d::t_13527f85496561 94-96,127-129
+  s_3fc4ebb643638d::t_afc2f8e63248ad 131-133,140-142
+  s_3fc4ebb643638d::t_00869ef3981f4f 146-148,181-183
+  s_3fc4ebb643638d::t_6018755bc60e76 187-189,194-196
+  s_3fc4ebb643638d::t_3d0763b5cdb0b6 198
+  s_3fc4ebb643638d::t_4ea559898f61a9 1-38,46-61,82-89,97-126,134-139,149-180,190-193
+src/otel.ts
+  s_3fc4ebb643638d::t_b07a94d2739a81 47
+e2e/opencode.e2e.test.ts
+  s_3fc4ebb643638d::t_f9e6d1ac6c6e48 94-97,100,102-104,108,110-112,114-115,122,127,139-142,144-198,200-209,211,215-216,218-219,222-225
+  s_3fc4ebb643638d::t_c14c1faf652943 199
+  s_3fc4ebb643638d::t_1d1a2adc68716e 28-30
+  s_3fc4ebb643638d::t_27e25e20fe03a5 10-11,17,22,24-27,31-62,117
+  s_3fc4ebb643638d::t_4699a548feb709 21
+  s_3fc4ebb643638d::t_d75d3eedcc2acc 106,130
+  s_3fc4ebb643638d::t_59ccf75554e605 7-9
+  s_3fc4ebb643638d::t_51527f4e8ffdb8 12-16
+  s_3fc4ebb643638d::t_d42ed8886bdedb 18-20
+  s_3fc4ebb643638d::t_9773421949ed62 23
+  s_3fc4ebb643638d::t_4314115201cb95 63-65,91-93
+  s_3fc4ebb643638d::t_9be3e5672ba1f3 98-99
+  s_3fc4ebb643638d::t_3da3e957feca84 101
+  s_3fc4ebb643638d::t_831c72e1f47167 105
+  s_3fc4ebb643638d::t_7c6cc129c9452d 107
+  s_3fc4ebb643638d::t_618604f3d8f891 109
+  s_3fc4ebb643638d::t_c6e84df38e2979 113
+  s_3fc4ebb643638d::t_6eef69756c4f42 116
+  s_3fc4ebb643638d::t_fd962eba34a23b 118-121
+  s_3fc4ebb643638d::t_aa6343ed6ffe19 123-126
+  s_3fc4ebb643638d::t_861be15d6de1b1 128-129
+  s_3fc4ebb643638d::t_02091ac08a1917 131-133,136-138
+  s_3fc4ebb643638d::t_9da6e49eacf00f 143
+  s_3fc4ebb643638d::t_7ad858d71cb955 210
+  s_3fc4ebb643638d::t_4434e0c302d4b5 212-214
+  s_3fc4ebb643638d::t_9dfe03b94deb96 217
+  s_3fc4ebb643638d::t_11cd8dfe8ff087 220-221
+  s_3fc4ebb643638d::t_864bba907b9516 226
+  s_3fc4ebb643638d::t_d4b505e0e94539 1-6,66-90,134-135
+package.json
+  s_3fc4ebb643638d::t_13bd1ff6bdd8af 69
+e2e/fake-llm.ts
+  s_3fc4ebb643638d::t_9c1e08be31374c 1-121
+e2e/otlp-receiver.ts
+  s_3fc4ebb643638d::t_8425794b9344a8 1-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "9bf30431816c21214dd3249ff955650ec1d074c5",
+  "prompts": {},
+  "sessions": {
+    "s_3fc4ebb643638d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc582-a85a-7f11-94b5-43c2fadc7f98",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
