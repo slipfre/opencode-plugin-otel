@@ -1,0 +1,39 @@
+.github/workflows/ci.yml
+  s_3fc4ebb643638d::t_76efc2e33ffca9 40-69
+e2e/fake-llm.ts
+  s_3fc4ebb643638d::t_6193f7b044aaa5 1-121
+e2e/harness.ts
+  s_3fc4ebb643638d::t_17dbe0e0c58dc0 1-198
+e2e/opencode.e2e.test.ts
+  s_3fc4ebb643638d::t_99b55d413c957c 1-226
+e2e/otlp-receiver.ts
+  s_3fc4ebb643638d::t_c57fae0564bc09 1-106
+eslint.config.mjs
+  s_3fc4ebb643638d::t_38872ea1fe3aab 7
+package.json
+  s_3fc4ebb643638d::t_07dd038796c7a0 69
+src/headers.ts
+  s_3fc4ebb643638d::t_d0741fc9ef8ed0 87-91
+src/index.ts
+  s_3fc4ebb643638d::t_276dab93a95f06 2,89,172-178,198-201
+src/otel.ts
+  s_3fc4ebb643638d::t_c7c17c1e71e23d 47
+tests/headers.test.ts
+  s_3fc4ebb643638d::t_c98ca55a1ce3bb 16-22,82-85,95-98,102,107-110,120-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "c3ca74f91a7dccfaf50008e86aaa962b5923f957",
+  "prompts": {},
+  "sessions": {
+    "s_3fc4ebb643638d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc582-a85a-7f11-94b5-43c2fadc7f98",
+        "model": "unknown"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
