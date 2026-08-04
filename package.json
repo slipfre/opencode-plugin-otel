@@ -66,6 +66,7 @@
     "check:jsdoc-coverage": "bun scripts/check-jsdoc-coverage.mjs",
     "lint": "bun --bun eslint .",
     "prepack": "bun run build",
+    "test:e2e": "bun test e2e --timeout 60000",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",

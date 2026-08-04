@@ -84,7 +84,11 @@ export class DynamicHeaders {
   }
 
   private async runHelper(): Promise<HeadersMap> {
-    const proc = Bun.spawn([this.helper!], {
+    const helper = this.helper!
+    const command = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(helper)
+      ? [process.env["ComSpec"] ?? "cmd.exe", "/d", "/c", "call", helper]
+      : [helper]
+    const proc = Bun.spawn(command, {
       stdout: "pipe",
       stderr: "pipe",
       timeout: this.helperTimeoutMs,

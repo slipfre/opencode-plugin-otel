@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
+import { ROOT_CONTEXT } from "@opentelemetry/api"
 import pkg from "../package.json" with { type: "json" }
 import type {
   EventSessionCreated,
@@ -86,7 +86,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const { tracerProvider } = providers
   await log("info", "OTel SDK initialized")
 
-  const tracer = trace.getTracer("com.opencode")
+  const tracer = tracerProvider.getTracer("com.opencode")
   const remoteContext = remoteParentContext(config.traceparent, config.tracestate)
   if (config.traceparent && !remoteContext) {
     await log("warn", "invalid OPENCODE_TRACEPARENT ignored", { traceparentLength: config.traceparent.length })
@@ -169,9 +169,13 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     await tracerProvider.shutdown()
   }
 
-  process.on("SIGTERM", () => { shutdown().then(() => process.exit(0)).catch(() => process.exit(1)) })
-  process.on("SIGINT",  () => { shutdown().then(() => process.exit(0)).catch(() => process.exit(1)) })
-  process.on("beforeExit", () => { shutdown().catch(() => {}) })
+  const handleSigterm = () => { shutdown().then(() => process.exit(0)).catch(() => process.exit(1)) }
+  const handleSigint = () => { shutdown().then(() => process.exit(0)).catch(() => process.exit(1)) }
+  const handleBeforeExit = () => { shutdown().catch(() => {}) }
+
+  process.on("SIGTERM", handleSigterm)
+  process.on("SIGINT", handleSigint)
+  process.on("beforeExit", handleBeforeExit)
 
   const safe = <T extends unknown[]>(
     name: string,
@@ -191,6 +195,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   return {
     dispose: async () => {
       unregisterAiTelemetry()
+      process.off("SIGTERM", handleSigterm)
+      process.off("SIGINT", handleSigint)
+      process.off("beforeExit", handleBeforeExit)
+      await shutdown()
     },
 
     config: async (cfg) => {

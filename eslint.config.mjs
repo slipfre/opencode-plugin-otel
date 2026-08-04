@@ -4,7 +4,7 @@ import tsParser from "@typescript-eslint/parser"
 /** @type {import("eslint").Linter.Config[]} */
 const config = [
 	{
-	  files: ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mjs"],
+	  files: ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "scripts/**/*.mjs"],
 	  languageOptions: {
 	    parser: tsParser,
 	    sourceType: "module",

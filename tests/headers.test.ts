@@ -13,6 +13,13 @@ afterEach(async () => {
   tempDir = undefined
 })
 
+async function writeHelper(unix: string, windows: string) {
+  const helper = join(tempDir!, process.platform === "win32" ? "helper.cmd" : "helper.sh")
+  await Bun.write(helper, process.platform === "win32" ? windows : unix)
+  if (process.platform !== "win32") await Bun.spawn(["chmod", "+x", helper]).exited
+  return helper
+}
+
 class FakeSpanExporter implements SpanExporter {
   readonly calls: string[][] = []
   readonly shutdowns: string[][]
@@ -72,9 +79,10 @@ describe("isAuthFailure", () => {
 describe("DynamicHeaders", () => {
   test("merges helper headers over static headers", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "otel-headers-"))
-    const helper = join(tempDir, "helper.sh")
-    await Bun.write(helper, "#!/bin/sh\nprintf '%s' '{\"Authorization\":\"Bearer dynamic\",\"x-extra\":\"1\"}'\n")
-    await Bun.spawn(["chmod", "+x", helper]).exited
+    const helper = await writeHelper(
+      "#!/bin/sh\nprintf '%s' '{\"Authorization\":\"Bearer dynamic\",\"x-extra\":\"1\"}'\n",
+      "@echo off\r\necho {\"Authorization\":\"Bearer dynamic\",\"x-extra\":\"1\"}\r\n",
+    )
 
     const headers = new DynamicHeaders({ Authorization: "Bearer static", static: "1" }, helper)
     await expect(headers.refresh()).resolves.toBe(1)
@@ -84,20 +92,22 @@ describe("DynamicHeaders", () => {
   test("shares one in-flight helper refresh", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "otel-headers-"))
     const countFile = join(tempDir, "count")
-    const helper = join(tempDir, "helper.sh")
-    await Bun.write(helper, `#!/bin/sh\ncount=$(cat "${countFile}" 2>/dev/null || printf 0)\ncount=$((count + 1))\nprintf '%s' "$count" > "${countFile}"\nsleep 0.1\nprintf '%s' '{"Authorization":"Bearer dynamic"}'\n`)
-    await Bun.spawn(["chmod", "+x", helper]).exited
+    const helper = await writeHelper(
+      `#!/bin/sh\ncount=$(cat "${countFile}" 2>/dev/null || printf 0)\ncount=$((count + 1))\nprintf '%s' "$count" > "${countFile}"\nsleep 0.1\nprintf '%s' '{"Authorization":"Bearer dynamic"}'\n`,
+      `@echo off\r\nset /a count=0\r\nif exist "${countFile}" set /p count=<"${countFile}"\r\nset /a count+=1\r\n>"${countFile}" echo %count%\r\necho {"Authorization":"Bearer dynamic"}\r\n`,
+    )
 
     const headers = new DynamicHeaders({}, helper)
     await Promise.all([headers.refresh(), headers.refresh(), headers.refresh()])
-    expect(await Bun.file(countFile).text()).toBe("1")
+    expect((await Bun.file(countFile).text()).trim()).toBe("1")
   })
 
   test("fails helper refresh when the helper times out", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "otel-headers-"))
-    const helper = join(tempDir, "helper.sh")
-    await Bun.write(helper, "#!/bin/sh\nsleep 1\n")
-    await Bun.spawn(["chmod", "+x", helper]).exited
+    const helper = await writeHelper(
+      "#!/bin/sh\nsleep 1\n",
+      "@echo off\r\n:wait\r\ngoto wait\r\n",
+    )
 
     const headers = new DynamicHeaders({}, helper, 50)
     await expect(headers.refresh()).rejects.toThrow("OTLP headers helper was terminated")
@@ -107,9 +117,10 @@ describe("DynamicHeaders", () => {
 describe("RefreshingSpanExporter", () => {
   test("refreshes headers and retries once after auth failure", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "otel-headers-"))
-    const helper = join(tempDir, "helper.sh")
-    await Bun.write(helper, "#!/bin/sh\nprintf '%s' '{\"Authorization\":\"Bearer dynamic\"}'\n")
-    await Bun.spawn(["chmod", "+x", helper]).exited
+    const helper = await writeHelper(
+      "#!/bin/sh\nprintf '%s' '{\"Authorization\":\"Bearer dynamic\"}'\n",
+      "@echo off\r\necho {\"Authorization\":\"Bearer dynamic\"}\r\n",
+    )
 
     const dynamicHeaders = new DynamicHeaders({ Authorization: "Bearer static" }, helper)
     const shutdowns: string[][] = []

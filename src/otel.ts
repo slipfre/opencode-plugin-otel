@@ -1,4 +1,3 @@
-import { trace } from "@opentelemetry/api"
 import { BasicTracerProvider, BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-grpc"
 import { OTLPTraceExporter as OTLPHttpTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
@@ -45,7 +44,7 @@ function buildHttpTraceUrl(endpoint: string) {
 
 /**
  * Initialises the OTel SDK with a `BasicTracerProvider` backed by an OTLP
- * exporter pointed at `endpoint`, and registers it as the global provider.
+ * exporter pointed at `endpoint`.
  */
 export async function setupOtel(
   endpoint: string,
@@ -79,7 +78,6 @@ export async function setupOtel(
     spanLimits: { attributeCountLimit: spanAttributeCountLimit },
     spanProcessors: [new BatchSpanProcessor(traceExporter)],
   })
-  trace.setGlobalTracerProvider(tracerProvider)
 
   return { tracerProvider }
 }

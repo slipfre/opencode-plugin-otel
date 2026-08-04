@@ -37,3 +37,33 @@ jobs:
 
       - name: Test
         run: bun test
+
+  e2e-windows:
+    name: OpenCode E2E (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install plugin dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Checkout OpenCode
+        uses: actions/checkout@v4
+        with:
+          repository: anomalyco/opencode
+          ref: 7534d23551f665e65080809975b4ca5c7d63807b
+          path: .e2e/opencode
+
+      - name: Install OpenCode dependencies
+        working-directory: .e2e/opencode
+        run: bun install --frozen-lockfile
+
+      - name: Run Windows E2E tests
+        env:
+          OPENCODE_E2E_ENTRY: ${{ github.workspace }}/.e2e/opencode/packages/opencode/src/index.ts
+        run: bun run test:e2e
