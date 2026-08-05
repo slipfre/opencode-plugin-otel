@@ -1,0 +1,47 @@
+.github/workflows/ci.yml
+  s_3fc4ebb643638d::t_76efc2e33ffca9 40-69
+e2e/opencode.e2e.test.ts
+  s_3fc4ebb643638d::t_adf59ff815401b 51,53,71,91,97-129,133
+  s_3fc4ebb643638d::t_6f087b40b34989 2-7,57,85-87
+  s_3fc4ebb643638d::t_99b55d413c957c 1,8-50,52,60-70,72-78,88,90,92-96,130-132,134-267
+  s_3fc4ebb643638d::t_ebef8c13ede5fb 54-56,58-59,79,81-84,89
+  s_3fc4ebb643638d::t_616d2d0c176f6f 80
+eslint.config.mjs
+  s_3fc4ebb643638d::t_38872ea1fe3aab 7
+tests/headers.test.ts
+  s_3fc4ebb643638d::t_c98ca55a1ce3bb 16-22,82-85,95-98,102,107-110,120-123
+package.json
+  s_3fc4ebb643638d::t_07dd038796c7a0 69
+e2e/fake-llm.ts
+  s_3fc4ebb643638d::t_ebef8c13ede5fb 4-5,47-52
+  s_3fc4ebb643638d::t_6193f7b044aaa5 1-3,6-10,12-46,53-67,69-72,74-102,104-109,111-116,118-119,122-131
+  s_3fc4ebb643638d::t_6f087b40b34989 11,73
+  s_3fc4ebb643638d::t_64c75e43543212 68,103,110,117,120-121
+src/headers.ts
+  s_3fc4ebb643638d::t_d0741fc9ef8ed0 87-91
+src/otel.ts
+  s_3fc4ebb643638d::t_c7c17c1e71e23d 47
+e2e/harness.ts
+  s_3fc4ebb643638d::t_64c75e43543212 6,44,49,112,129
+  s_3fc4ebb643638d::t_17dbe0e0c58dc0 1-5,7-43,45-48,50-111,113-128,130-198
+e2e/otlp-receiver.ts
+  s_3fc4ebb643638d::t_c57fae0564bc09 1-106
+src/index.ts
+  s_3fc4ebb643638d::t_276dab93a95f06 2,89,172-178,198-201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "40ca457457c90a3d1523410bde741f7e5207fcad",
+  "prompts": {},
+  "sessions": {
+    "s_3fc4ebb643638d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc582-a85a-7f11-94b5-43c2fadc7f98",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
