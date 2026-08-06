@@ -4,7 +4,6 @@ import {
   errorSummary,
   genAiProviderName,
   setBoundedMap,
-  isTraceEnabled,
   resolveInteractionTraceContext,
   resolveSessionTraceContext,
 } from "../src/util.ts"
@@ -103,36 +102,6 @@ describe("setBoundedMap", () => {
     expect(map.size).toBe(MAX_PENDING)
     expect(map.get("key-10")).toBe(1000)
     expect(map.has("key-0")).toBe(true)
-  })
-})
-
-describe("isTraceEnabled", () => {
-  test("returns true when disabled set is empty", () => {
-    expect(isTraceEnabled("llm", { disabledTraces: new Set() })).toBe(true)
-  })
-
-  test("returns false when trace type is in the disabled set", () => {
-    expect(isTraceEnabled("tool", { disabledTraces: new Set(["tool"]) })).toBe(false)
-  })
-
-  test("returns false for llm when llm is disabled", () => {
-    expect(isTraceEnabled("llm", { disabledTraces: new Set(["llm"]) })).toBe(false)
-  })
-
-  test("returns false for tool when tool is disabled", () => {
-    expect(isTraceEnabled("tool", { disabledTraces: new Set(["tool"]) })).toBe(false)
-  })
-
-  test("returns true when a different trace type is disabled", () => {
-    expect(isTraceEnabled("llm", { disabledTraces: new Set(["tool"]) })).toBe(true)
-  })
-
-  test("is case-sensitive — does not match mismatched case", () => {
-    expect(isTraceEnabled("llm", { disabledTraces: new Set(["LLM"]) })).toBe(true)
-  })
-
-  test("unknown trace names in disabled set do not affect known types", () => {
-    expect(isTraceEnabled("llm", { disabledTraces: new Set(["does_not_exist"]) })).toBe(true)
   })
 })
 

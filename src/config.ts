@@ -1,9 +1,5 @@
 import { LEVELS, type Level } from "./types.ts"
 
-/** Valid trace types emitted by the plugin. */
-export const TRACE_TYPES = ["llm", "tool"] as const
-
-const TRACE_DISABLE_ALL_VALUES = new Set(["all", "*", "true", "1"])
 const DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT = 4096
 const DEFAULT_USER_ID_TIMEOUT = 3000
 const DEFAULT_USER_ID_RETRY_COUNT = 2
@@ -29,7 +25,6 @@ export type PluginConfig = {
   spanAttributeCountLimit: number
   traceparent: string | undefined
   tracestate: string | undefined
-  disabledTraces: Set<string>
   tracePropagationProviders: Set<string>
 }
 
@@ -74,7 +69,6 @@ export type OtelPluginOptions = {
   spanAttributeCountLimit?: number
   traceparent?: string
   tracestate?: string
-  disabledTraces?: string[]
   tracePropagationProviders?: string[]
 }
 
@@ -143,15 +137,6 @@ function normalizeList(values: string[]): string[] {
   return values.map(s => s.trim()).filter(Boolean)
 }
 
-/** Builds the disabled-traces set from raw values, expanding global values like `all` to every trace type. */
-function expandDisabledTraces(values: string[]): Set<string> {
-  const normalized = values.map(v => v.trim().toLowerCase()).filter(Boolean)
-  if (normalized.some(value => TRACE_DISABLE_ALL_VALUES.has(value))) {
-    return new Set(TRACE_TYPES)
-  }
-  return new Set(normalized)
-}
-
 /**
  * Resolves the plugin config from plugin `options` and `OPENCODE_*` environment
  * variables. For every field a provided option wins over the environment
@@ -175,9 +160,6 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
 
   if (otlpHeaders) process.env["OTEL_EXPORTER_OTLP_HEADERS"] = otlpHeaders
   if (resourceAttributes) process.env["OTEL_RESOURCE_ATTRIBUTES"] = resourceAttributes
-
-  const optionTraces = pickStringList(resolvedOptions.disabledTraces)
-  const disabledTraces = expandDisabledTraces(optionTraces ?? splitList(process.env["OPENCODE_DISABLE_TRACES"]))
 
   const optionTracePropagationProviders = pickStringList(resolvedOptions.tracePropagationProviders)
   const tracePropagationProviders = new Set(
@@ -213,7 +195,6 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
     spanAttributes,
     traceparent,
     tracestate,
-    disabledTraces,
     tracePropagationProviders,
   }
 }

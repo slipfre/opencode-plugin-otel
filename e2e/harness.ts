@@ -11,7 +11,6 @@ type PluginOptions = {
   tracePrefix?: string
   traceparent?: string
   tracestate?: string
-  disabledTraces?: string[]
   tracePropagationProviders?: string[]
 }
 

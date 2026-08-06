@@ -32,8 +32,6 @@ import {
   errorSummary,
   genAiProviderName,
   setBoundedMap,
-  accumulateInteractionTotals,
-  isTraceEnabled,
   resolveInteractionTraceContext,
   resolveSessionTraceContext,
 } from "../util.ts"
@@ -42,6 +40,21 @@ import { endInteractionSpan } from "../interaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
+
+function accumulateInteractionTotals(
+  interactionID: string,
+  tokens: number,
+  cost: number,
+  ctx: HandlerContext,
+) {
+  const existing = ctx.interactionTotals.get(interactionID)
+  if (!existing) return
+  setBoundedMap(ctx.interactionTotals, interactionID, {
+    tokens: existing.tokens + tokens,
+    cost: existing.cost + cost,
+    messages: existing.messages + 1,
+  })
+}
 
 function resolveToolTraceContext(sessionID: string, assistantMessageID: string, ctx: HandlerContext) {
   const interactionID = ctx.assistantInteractions.get(assistantMessageID)
@@ -84,19 +97,18 @@ function removePendingSubagentRun(sessionID: string, taskCallID: string, ctx: Ha
   }
 }
 
-function bindSubagentRun(toolPart: ToolPart, toolSpan: Span | undefined, ctx: HandlerContext) {
+function bindSubagentRun(toolPart: ToolPart, toolSpan: Span, ctx: HandlerContext) {
   const task = taskMetadata(toolPart)
   if (!task) return
-  toolSpan?.setAttributes({
+  toolSpan.setAttributes({
     "subagent.session.id": task.childSessionID,
     ...(task.agent ? { "subagent.agent.name": task.agent } : {}),
   })
-  const existing = ctx.pendingSubagentRuns.get(task.childSessionID)
   setBoundedMap(ctx.pendingSubagentRuns, task.childSessionID, {
     agentType: "subagent",
     parentSessionID: task.parentSessionID,
     taskCallID: toolPart.callID,
-    taskSpanContext: toolSpan?.spanContext() ?? existing?.taskSpanContext,
+    taskSpanContext: toolSpan.spanContext(),
   })
 }
 
@@ -240,7 +252,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     if (toolPart.state.status === "running") {
       const pending = ctx.pendingToolSpans.get(key)
       if (pending) {
-        pending.span?.setAttributes({
+        pending.span.setAttributes({
           [TOOL_PARAMETERS]: JSON.stringify(toolPart.state.input),
           [INPUT_VALUE]: JSON.stringify(toolPart.state.input),
         })
@@ -249,30 +261,26 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
       }
       recordLlmOutputEnd(toolPart, toolPart.state.time.start, ctx)
       const { agentName, agentType } = getRunAgentMeta(toolPart.sessionID, ctx)
-      const toolSpan = isTraceEnabled("tool", ctx)
-        ? (() => {
-            return ctx.tracer.startSpan(
-              `${ctx.tracePrefix}tool.${toolPart.tool}`,
-              {
-                startTime: toolPart.state.time.start,
-                kind: SpanKind.INTERNAL,
-                attributes: {
-                  [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
-                  [SESSION_ID]: toolPart.sessionID,
-                  [TOOL_ID]: toolPart.callID,
-                  [TOOL_NAME]: toolPart.tool,
-                  [TOOL_PARAMETERS]: JSON.stringify(toolPart.state.input),
-                  [INPUT_VALUE]: JSON.stringify(toolPart.state.input),
-                  [INPUT_MIME_TYPE]: MimeType.JSON,
-                  [AGENT_NAME]: agentName,
-                  "agent.type": agentType,
-                  ...ctx.commonAttrs,
-                },
-              },
-              resolveToolTraceContext(toolPart.sessionID, toolPart.messageID, ctx),
-            )
-          })()
-        : undefined
+      const toolSpan = ctx.tracer.startSpan(
+        `${ctx.tracePrefix}tool.${toolPart.tool}`,
+        {
+          startTime: toolPart.state.time.start,
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
+            [SESSION_ID]: toolPart.sessionID,
+            [TOOL_ID]: toolPart.callID,
+            [TOOL_NAME]: toolPart.tool,
+            [TOOL_PARAMETERS]: JSON.stringify(toolPart.state.input),
+            [INPUT_VALUE]: JSON.stringify(toolPart.state.input),
+            [INPUT_MIME_TYPE]: MimeType.JSON,
+            [AGENT_NAME]: agentName,
+            "agent.type": agentType,
+            ...ctx.commonAttrs,
+          },
+        },
+        resolveToolTraceContext(toolPart.sessionID, toolPart.messageID, ctx),
+      )
       setBoundedMap(ctx.pendingToolSpans, key, {
         tool: toolPart.tool,
         sessionID: toolPart.sessionID,
@@ -295,48 +303,46 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     const task = taskMetadata(toolPart)
     if (task) removePendingSubagentRun(task.childSessionID, toolPart.callID, ctx)
 
-    if (isTraceEnabled("tool", ctx)) {
-      const toolSpan = pending?.span ?? (() => {
-        return ctx.tracer.startSpan(
-          `${ctx.tracePrefix}tool.${toolPart.tool}`,
-          {
-            startTime: start,
-            kind: SpanKind.INTERNAL,
-            attributes: {
-              [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
-              [SESSION_ID]: toolPart.sessionID,
-              [TOOL_ID]: toolPart.callID,
-              [TOOL_NAME]: toolPart.tool,
-              [TOOL_PARAMETERS]: JSON.stringify(toolPart.state.input),
-              [INPUT_VALUE]: JSON.stringify(toolPart.state.input),
-              [INPUT_MIME_TYPE]: MimeType.JSON,
-              ...ctx.commonAttrs,
-            },
+    const toolSpan = pending?.span ?? (() => {
+      return ctx.tracer.startSpan(
+        `${ctx.tracePrefix}tool.${toolPart.tool}`,
+        {
+          startTime: start,
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
+            [SESSION_ID]: toolPart.sessionID,
+            [TOOL_ID]: toolPart.callID,
+            [TOOL_NAME]: toolPart.tool,
+            [TOOL_PARAMETERS]: JSON.stringify(toolPart.state.input),
+            [INPUT_VALUE]: JSON.stringify(toolPart.state.input),
+            [INPUT_MIME_TYPE]: MimeType.JSON,
+            ...ctx.commonAttrs,
           },
-          resolveToolTraceContext(toolPart.sessionID, toolPart.messageID, ctx),
-        )
-      })()
-      toolSpan.setAttributes({ [AGENT_NAME]: agentName, "agent.type": agentType })
-      toolSpan.setAttribute("tool.success", success)
-      if (success) {
-        const output = (toolPart.state as { output: string }).output
-        toolSpan.setAttributes({
-          [OUTPUT_VALUE]: output,
-          [OUTPUT_MIME_TYPE]: MimeType.TEXT,
-        })
-        toolSpan.setAttribute("tool.result_size_bytes", Buffer.byteLength(output, "utf8"))
-        toolSpan.setStatus({ code: SpanStatusCode.OK })
-      } else {
-        const err = (toolPart.state as { error: string }).error
-        toolSpan.setAttributes({
-          [OUTPUT_VALUE]: err,
-          [OUTPUT_MIME_TYPE]: MimeType.TEXT,
-        })
-        toolSpan.setAttribute("tool.error", err)
-        toolSpan.setStatus({ code: SpanStatusCode.ERROR, message: err })
-      }
-      toolSpan.end(end)
+        },
+        resolveToolTraceContext(toolPart.sessionID, toolPart.messageID, ctx),
+      )
+    })()
+    toolSpan.setAttributes({ [AGENT_NAME]: agentName, "agent.type": agentType })
+    toolSpan.setAttribute("tool.success", success)
+    if (success) {
+      const output = (toolPart.state as { output: string }).output
+      toolSpan.setAttributes({
+        [OUTPUT_VALUE]: output,
+        [OUTPUT_MIME_TYPE]: MimeType.TEXT,
+      })
+      toolSpan.setAttribute("tool.result_size_bytes", Buffer.byteLength(output, "utf8"))
+      toolSpan.setStatus({ code: SpanStatusCode.OK })
+    } else {
+      const err = (toolPart.state as { error: string }).error
+      toolSpan.setAttributes({
+        [OUTPUT_VALUE]: err,
+        [OUTPUT_MIME_TYPE]: MimeType.TEXT,
+      })
+      toolSpan.setAttribute("tool.error", err)
+      toolSpan.setStatus({ code: SpanStatusCode.ERROR, message: err })
     }
+    toolSpan.end(end)
 
   }
 }
@@ -362,7 +368,6 @@ export function startMessageSpan(
   const msgKey = `${sessionID}:${messageID}`
   setBoundedMap(ctx.assistantInteractions, messageID, parentID)
   setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID: parentID })
-  if (!isTraceEnabled("llm", ctx)) return
   if (ctx.messageSpans.has(msgKey)) return
   const run = ctx.activeRunSpans.get(sessionID)
   const runAgent = getRunAgentMeta(sessionID, ctx)

@@ -113,21 +113,15 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
   const activeMessageSpans = new Map()
   const llmTelemetryOutputs = new Map()
-  const { disabledTraces } = config
   const commonAttrs = {
     ...parseAttributePairs(config.spanAttributes),
     "project.id": project.id,
   } as const
 
-  if (disabledTraces.size > 0) {
-    await log("info", "traces disabled", { disabled: [...disabledTraces] })
-  }
-
   const ctx: HandlerContext = {
     log,
     commonAttrs,
     pendingToolSpans,
-    disabledTraces,
     tracer,
     tracePrefix: config.tracePrefix,
     rootContext,

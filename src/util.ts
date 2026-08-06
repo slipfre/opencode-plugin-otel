@@ -62,26 +62,3 @@ export function resolveSessionTraceContext(
   const activeRun = ctx.activeRunSpans.get(sessionID)
   return activeRun ? trace.setSpan(baseCtx, activeRun.span) : baseCtx
 }
-
-/**
- * Returns `true` if the trace type is not in the disabled set.
- * Valid names are `"session"`, `"llm"`, and `"tool"`.
- */
-export function isTraceEnabled(name: string, ctx: { disabledTraces: Set<string> }): boolean {
-  return !ctx.disabledTraces.has(name)
-}
-
-export function accumulateInteractionTotals(
-  interactionID: string,
-  tokens: number,
-  cost: number,
-  ctx: HandlerContext,
-) {
-  const existing = ctx.interactionTotals.get(interactionID)
-  if (!existing) return
-  setBoundedMap(ctx.interactionTotals, interactionID, {
-    tokens: existing.tokens + tokens,
-    cost: existing.cost + cost,
-    messages: existing.messages + 1,
-  })
-}

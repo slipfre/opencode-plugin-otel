@@ -17,7 +17,6 @@ An [opencode](https://opencode.ai) plugin that exports traces through OpenTeleme
   - [Headers and attributes](#headers-and-attributes)
   - [Dynamic headers](#dynamic-headers)
   - [LLM trace propagation](#llm-trace-propagation)
-  - [Disabling traces](#disabling-traces)
 - [Local development](#local-development)
 
 ## Trace spans
@@ -66,7 +65,6 @@ The plugin reads settings from `OPENCODE_*` environment variables and inline plu
 | `OPENCODE_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP collector endpoint with a URL scheme. HTTP transports append `/v1/traces` |
 | `OPENCODE_OTLP_PROTOCOL` | `grpc` | `grpc`, `http/protobuf`, or `http/json` |
 | `OPENCODE_TRACE_PREFIX` | `opencode.` | Prefix applied to emitted span names |
-| `OPENCODE_DISABLE_TRACES` | *(unset)* | Comma-separated trace types to disable: `llm` and `tool` |
 | `OPENCODE_OTLP_HEADERS` | *(unset)* | Comma-separated `key=value` headers added to exports |
 | `OPENCODE_OTLP_HEADERS_HELPER` | *(unset)* | Executable that returns dynamic OTLP headers as JSON |
 | `OPENCODE_RESOURCE_ATTRIBUTES` | *(unset)* | Comma-separated attributes merged into the OTel resource |
@@ -95,8 +93,7 @@ Every setting can also be passed through opencode's plugin tuple form:
       "endpoint": "http://localhost:4317",
       "protocol": "grpc",
       "tracePrefix": "opencode.",
-      "resourceAttributes": "service.version=1.2.3,deployment.environment=production",
-      "disabledTraces": ["tool"]
+      "resourceAttributes": "service.version=1.2.3,deployment.environment=production"
     }]
   ]
 }
@@ -110,7 +107,6 @@ Option keys mirror the resolved config:
 | `endpoint` | `OPENCODE_OTLP_ENDPOINT` |
 | `protocol` | `OPENCODE_OTLP_PROTOCOL` |
 | `tracePrefix` | `OPENCODE_TRACE_PREFIX` |
-| `disabledTraces` | `OPENCODE_DISABLE_TRACES` |
 | `otlpHeaders` | `OPENCODE_OTLP_HEADERS` |
 | `otlpHeadersHelper` | `OPENCODE_OTLP_HEADERS_HELPER` |
 | `resourceAttributes` | `OPENCODE_RESOURCE_ATTRIBUTES` |
@@ -168,16 +164,6 @@ export OPENCODE_TRACE_PROPAGATION_PROVIDERS="company-litellm,vllm"
 ```
 
 Only W3C `traceparent` and `tracestate` are injected. Propagation is disabled when the setting is unset.
-
-### Disabling traces
-
-```bash
-export OPENCODE_DISABLE_TRACES="tool"
-export OPENCODE_DISABLE_TRACES="llm,tool"
-export OPENCODE_DISABLE_TRACES="all"
-```
-
-Accepted values that disable every trace type are `all`, `*`, `true`, and `1`.
 
 ## Local development
 

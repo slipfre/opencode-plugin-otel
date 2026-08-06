@@ -27,7 +27,7 @@ export type PendingToolSpan = {
   tool: string
   sessionID: string
   startMs: number
-  span?: Span
+  span: Span
 }
 
 /** Session role emitted by opencode: either the primary/root agent or a spawned subagent. */
@@ -89,7 +89,6 @@ export type HandlerContext = {
   log: PluginLogger
   commonAttrs: CommonAttrs
   pendingToolSpans: Map<string, PendingToolSpan>
-  disabledTraces: Set<string>
   tracer: Tracer
   tracePrefix: string
   rootContext: () => Context

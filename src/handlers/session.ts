@@ -203,8 +203,8 @@ export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext
 function sweepSession(sessionID: string, ctx: HandlerContext) {
   for (const [key, span] of ctx.pendingToolSpans) {
     if (span.sessionID === sessionID) {
-      span.span?.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before tool completed" })
-      span.span?.end()
+      span.span.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before tool completed" })
+      span.span.end()
       ctx.pendingToolSpans.delete(key)
     }
   }

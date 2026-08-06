@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { loadConfig, parseAttributePairs, parseEnvInt, resolveHelperPath, resolveLogLevel, TRACE_TYPES } from "../src/config.ts"
+import { loadConfig, parseAttributePairs, parseEnvInt, resolveHelperPath, resolveLogLevel } from "../src/config.ts"
 
 const ENV_KEYS = [
   "OPENCODE_ENABLE_TELEMETRY",
@@ -13,7 +13,6 @@ const ENV_KEYS = [
   "OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT",
   "OPENCODE_TRACEPARENT",
   "OPENCODE_TRACESTATE",
-  "OPENCODE_DISABLE_TRACES",
   "OPENCODE_TRACE_PROPAGATION_PROVIDERS",
   "OPENCODE_USER_ID_ENABLED",
   "OPENCODE_USER_ID_ENDPOINT",
@@ -84,7 +83,6 @@ describe("loadConfig", () => {
     expect(cfg.protocol).toBe("grpc")
     expect(cfg.tracePrefix).toBe("opencode.")
     expect(cfg.spanAttributeCountLimit).toBe(4096)
-    expect(cfg.disabledTraces.size).toBe(0)
     expect(cfg.tracePropagationProviders.size).toBe(0)
   })
 
@@ -134,21 +132,6 @@ describe("loadConfig", () => {
     expect(cfg.spanAttributeCountLimit).toBe(8192)
   })
 
-  test("parses and normalizes disabled trace types", () => {
-    process.env["OPENCODE_DISABLE_TRACES"] = " LLM , Tool "
-    expect(loadConfig().disabledTraces).toEqual(new Set(["llm", "tool"]))
-  })
-
-  test.each(["all", "*", "true", "1"])("expands %s to every trace type", (value) => {
-    process.env["OPENCODE_DISABLE_TRACES"] = value
-    expect(loadConfig().disabledTraces).toEqual(new Set(TRACE_TYPES))
-  })
-
-  test("passes unknown disabled trace values through", () => {
-    process.env["OPENCODE_DISABLE_TRACES"] = "session,unknown"
-    expect(loadConfig().disabledTraces).toEqual(new Set(["session", "unknown"]))
-  })
-
   test("parses trace propagation providers", () => {
     process.env["OPENCODE_TRACE_PROPAGATION_PROVIDERS"] = " gateway-a , gateway-b "
     expect(loadConfig().tracePropagationProviders).toEqual(new Set(["gateway-a", "gateway-b"]))
@@ -188,13 +171,11 @@ describe("loadConfig", () => {
   test("options override environment values", () => {
     process.env["OPENCODE_OTLP_ENDPOINT"] = "http://from-env:4317"
     process.env["OPENCODE_TRACE_PREFIX"] = "env."
-    process.env["OPENCODE_DISABLE_TRACES"] = "session"
     const cfg = loadConfig({
       enabled: true,
       endpoint: "http://from-option:4317",
       protocol: "http/json",
       tracePrefix: "option.",
-      disabledTraces: ["tool"],
       tracePropagationProviders: ["gateway"],
       spanAttributeCountLimit: 2048,
       userIDEnabled: false,
@@ -205,7 +186,6 @@ describe("loadConfig", () => {
     expect(cfg.endpoint).toBe("http://from-option:4317")
     expect(cfg.protocol).toBe("http/json")
     expect(cfg.tracePrefix).toBe("option.")
-    expect(cfg.disabledTraces).toEqual(new Set(["tool"]))
     expect(cfg.tracePropagationProviders).toEqual(new Set(["gateway"]))
     expect(cfg.spanAttributeCountLimit).toBe(2048)
     expect(cfg.userIDEnabled).toBe(false)

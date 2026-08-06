@@ -110,7 +110,6 @@ export type MockContext = {
 
 export function makeCtx(
   projectID = "proj_test",
-  disabledTraces: string[] = [],
   extraCommonAttrs: Record<string, string> = {},
 ): MockContext {
   const pluginLog = makePluginLog()
@@ -120,7 +119,6 @@ export function makeCtx(
     log: pluginLog.fn,
     commonAttrs: { "project.id": projectID, ...extraCommonAttrs },
     pendingToolSpans: new Map(),
-    disabledTraces: new Set(disabledTraces),
     tracer: tracer as unknown as Tracer,
     tracePrefix: "opencode.",
     rootContext: () => ROOT_CONTEXT,
