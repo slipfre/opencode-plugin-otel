@@ -1,0 +1,35 @@
+src/types.ts
+  s_7e998919ba2aa9::t_6380e0336e5193 30
+README.md
+  s_7e998919ba2aa9::t_6380e0336e5193 96
+tests/handlers/spans.test.ts
+  s_7e998919ba2aa9::t_6380e0336e5193 135,156,407,509,597
+src/handlers/message.ts
+  s_7e998919ba2aa9::t_6380e0336e5193 100,103,111,255,264-283,306-320,322-343,345
+  s_7e998919ba2aa9::t_02dfc12c80bb9c 44-58
+src/handlers/session.ts
+  s_7e998919ba2aa9::t_6380e0336e5193 206-207
+tests/config.test.ts
+  s_7e998919ba2aa9::t_6380e0336e5193 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "5b2fe2e269cc40f14d655474604ceea7f3572420",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_7e998919ba2aa9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd612-8645-7173-bc3a-57d760fc1c02",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
