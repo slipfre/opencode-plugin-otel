@@ -21,6 +21,7 @@ import {
 } from "../util.ts"
 import type { ActiveRunSpan, HandlerContext, RunDetails, SessionAgentType } from "../types.ts"
 import { endInteractionSpan } from "../interaction.ts"
+import { compactionHandlers } from "../compaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 
@@ -123,6 +124,7 @@ export function handleInteractionStarted(
   startTime: number,
   ctx: HandlerContext,
 ) {
+  compactionHandlers.recordExternalUser(interactionID, ctx)
   const details = takeRunDetails(sessionID, ctx)
   const existing = ctx.interactionSpans.get(interactionID)
   if (!existing && ctx.interactionSpanContexts.has(interactionID)) return
@@ -200,10 +202,10 @@ export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext
   if (parentID) setBoundedMap(ctx.sessionParents, sessionID, parentID)
 }
 
-function sweepSession(sessionID: string, ctx: HandlerContext) {
+function sweepSession(sessionID: string, ctx: HandlerContext, error?: string) {
   for (const [key, span] of ctx.pendingToolSpans) {
     if (span.sessionID === sessionID) {
-      span.span.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before tool completed" })
+      span.span.setStatus({ code: SpanStatusCode.ERROR, message: error ?? "session ended before tool completed" })
       span.span.end()
       ctx.pendingToolSpans.delete(key)
     }
@@ -215,7 +217,7 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
   const msgPrefix = `${sessionID}:`
   for (const [key, span] of ctx.messageSpans) {
     if (key.startsWith(msgPrefix)) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before message completed" })
+      span.setStatus({ code: SpanStatusCode.ERROR, message: error ?? "session ended before message completed" })
       span.end()
       ctx.messageSpans.delete(key)
     }
@@ -264,8 +266,10 @@ function endInteractions(
 /** Records totals, ends the active run, and clears pending state. */
 export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   const sessionID = e.properties.sessionID
-  sweepSession(sessionID, ctx)
-  endInteractions(sessionID, SpanStatusCode.OK, ctx)
+  const compactionError = compactionHandlers.finalizeOnIdle(sessionID, ctx)
+  const status = compactionError ? SpanStatusCode.ERROR : SpanStatusCode.OK
+  sweepSession(sessionID, ctx, compactionError)
+  endInteractions(sessionID, status, ctx, compactionError)
 
   const run = ctx.activeRunSpans.get(sessionID)
   if (run) {
@@ -278,7 +282,10 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
     })
     setRunIOAttributes(run)
     run.span.setAttribute("run.total_interactions", run.interactionIDs.size)
-    run.span.setStatus({ code: SpanStatusCode.OK })
+    run.span.setStatus(compactionError
+      ? { code: SpanStatusCode.ERROR, message: compactionError }
+      : { code: SpanStatusCode.OK })
+    if (compactionError) run.span.setAttribute("error", compactionError)
     run.span.end()
     ctx.activeRunSpans.delete(sessionID)
   }
@@ -289,8 +296,13 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
 export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
   const rawID = e.properties.sessionID
   const sessionID = rawID ?? "unknown"
-  const error = errorSummary(e.properties.error)
-  sweepSession(sessionID, ctx)
+  const rawError = e.properties.error as { name: string; data?: unknown } | undefined
+  const error = errorSummary(rawError)
+  if (rawID && rawError && compactionHandlers.deferSessionError(rawID, rawError, ctx)) {
+    ctx.log("warn", "otel: recoverable session.error deferred", { sessionID, error })
+    return
+  }
+  sweepSession(sessionID, ctx, error)
   if (rawID) endInteractions(rawID, SpanStatusCode.ERROR, ctx, error)
 
   if (rawID) {

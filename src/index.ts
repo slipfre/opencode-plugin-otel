@@ -5,6 +5,7 @@ import type {
   EventSessionCreated,
   EventSessionIdle,
   EventSessionError,
+  EventSessionCompacted,
   EventMessageUpdated,
   EventMessagePartUpdated,
 } from "@opencode-ai/sdk"
@@ -23,6 +24,7 @@ import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
 import { createUserIDManager } from "./user-id.ts"
+import { compactionHandlers } from "./compaction.ts"
 
 const PLUGIN_VERSION: string = (pkg as { version?: string }).version ?? "unknown"
 
@@ -99,6 +101,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const activeInteractions = new Map()
   const assistantInteractions = new Map()
   const pendingAssistantInteractions = new Map()
+  const compactionsBySession = new Map()
+  const internalUserInteractions = new Map()
+  const deferredAssistantErrors = new Map()
+  const externalUserMessageIDs = new Map()
   const pendingSubagentRuns = new Map()
   const interactionInputs = new Map()
   const interactionTotals = new Map()
@@ -131,6 +137,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     activeInteractions,
     assistantInteractions,
     pendingAssistantInteractions,
+    compactionsBySession,
+    internalUserInteractions,
+    deferredAssistantErrors,
+    externalUserMessageIDs,
     pendingSubagentRuns,
     interactionInputs,
     interactionTotals,
@@ -258,10 +268,18 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           handleSessionError(event as EventSessionError, ctx)
           await flushTelemetry("session.error")
           break
+        case "session.compacted":
+          compactionHandlers.handleSessionCompacted(
+            (event as EventSessionCompacted).properties.sessionID,
+            ctx,
+          )
+          await flushTelemetry("session.compacted")
+          break
         case "message.updated": {
           const msgEvt = event as EventMessageUpdated
           const info = msgEvt.properties.info
           if (info.role === "user") {
+            compactionHandlers.recordUserMessage(info, ctx)
             break
           }
           if (info.role === "assistant" && !info.time?.completed) {
@@ -274,6 +292,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
               info.time?.created ?? Date.now(),
               ctx,
               info.mode,
+              info.summary === true,
             )
           }
           await handleMessageUpdated(msgEvt, ctx)

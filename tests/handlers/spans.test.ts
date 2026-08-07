@@ -25,12 +25,15 @@ import {
 import type { Span } from "@opentelemetry/api"
 import { handleSessionCreated, handleSessionIdle, handleSessionError, handleInteractionStarted } from "../../src/handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "../../src/handlers/message.ts"
+import { compactionHandlers } from "../../src/compaction.ts"
 import { remoteParentContext } from "../../src/trace-context.ts"
 import { makeCtx, makeTracer, type SpySpan } from "../helpers.ts"
+import type { HandlerContext } from "../../src/types.ts"
 import type {
   EventSessionCreated,
   EventSessionIdle,
   EventSessionError,
+  EventSessionCompacted,
   EventMessageUpdated,
   EventMessagePartUpdated,
 } from "@opencode-ai/sdk"
@@ -48,11 +51,58 @@ function makeSessionIdle(sessionID: string): EventSessionIdle {
   return { type: "session.idle", properties: { sessionID } } as EventSessionIdle
 }
 
-function makeSessionError(sessionID?: string, error?: { name: string }): EventSessionError {
+function makeSessionError(sessionID?: string, error?: { name: string; data?: unknown }): EventSessionError {
   return {
     type: "session.error",
     properties: { ...(sessionID !== undefined ? { sessionID } : {}), error },
   } as unknown as EventSessionError
+}
+
+function makeSessionCompacted(sessionID: string): EventSessionCompacted {
+  return { type: "session.compacted", properties: { sessionID } } as EventSessionCompacted
+}
+
+function makeUserMessageUpdated(
+  id: string,
+  sessionID = "ses_1",
+  created = 1000,
+): EventMessageUpdated {
+  return {
+    type: "message.updated",
+    properties: {
+      info: {
+        id,
+        sessionID,
+        role: "user",
+        time: { created },
+        agent: "build",
+        model: { providerID: "anthropic", modelID: "claude" },
+      },
+    },
+  } as EventMessageUpdated
+}
+
+function makeCompactionPartUpdated(
+  messageID: string,
+  overrides: { sessionID?: string; auto?: boolean; overflow?: boolean } = {},
+): EventMessagePartUpdated {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "compaction",
+        sessionID: overrides.sessionID ?? "ses_1",
+        messageID,
+        auto: overrides.auto ?? true,
+        overflow: overrides.overflow,
+      },
+    },
+  } as unknown as EventMessagePartUpdated
+}
+
+function recordUserMessage(event: EventMessageUpdated, ctx: HandlerContext) {
+  const info = event.properties.info
+  if (info.role === "user") compactionHandlers.recordUserMessage(info, ctx)
 }
 
 function makeAssistantMessageUpdated(overrides: {
@@ -660,6 +710,283 @@ describe("run and interaction spans", () => {
     expect(ctx.activeRunSpans.size).toBe(0)
     expect(ctx.interactionSpans.size).toBe(0)
     expect(ctx.interactionTotals.size).toBe(0)
+  })
+})
+
+describe("compaction spans", () => {
+  test("keeps overflow recovery in one interaction with exact compaction parents", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    startMessageSpan("ses_1", "msg_overflow", "user_1", "claude", "anthropic", 1000, ctx, "build")
+
+    handleSessionError(makeSessionError("ses_1", {
+      name: "ContextOverflowError",
+      data: { message: "context limit" },
+    }), ctx)
+    expect(ctx.compactionsBySession.get("ses_1")?.phase).toBe("awaiting_compaction")
+    expect(ctx.compactionsBySession.get("ses_1")?.trigger).toBe("overflow")
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_overflow",
+      parentID: "user_1",
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+
+    expect(tracer.spans[2]!.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError: context limit",
+    })
+    expect(tracer.spans[0]!.ended).toBe(false)
+    expect(tracer.spans[1]!.ended).toBe(false)
+
+    recordUserMessage(makeUserMessageUpdated("user_compact", "ses_1", 1200), ctx)
+    expect(ctx.compactionsBySession.get("ses_1")?.userMessageIDs.has("user_compact")).toBe(true)
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact", { overflow: true }), ctx)
+    expect(ctx.compactionsBySession.get("ses_1")?.phase).toBe("summarizing")
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "claude",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+      true,
+    )
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      mode: "compaction",
+      summary: true,
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+
+    recordUserMessage(makeUserMessageUpdated("user_replay", "ses_1", 1500), ctx)
+    compactionHandlers.handleSessionCompacted(makeSessionCompacted("ses_1").properties.sessionID, ctx)
+    startMessageSpan("ses_1", "msg_continue", "user_replay", "claude", "anthropic", 1600, ctx, "build")
+    handleMessagePartUpdated(makeTextPartUpdated("final answer", "ses_1", "msg_continue"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_continue",
+      parentID: "user_replay",
+      time: { created: 1600, completed: 1800 },
+    }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    const compaction = tracer.spans.find(span => span.name === "opencode.compaction")!
+    const summary = tracer.spans.find(span => span.attributes["opencode.llm.purpose"] === "compaction_summary")!
+    const continuation = tracer.spans.find(span => span.attributes["opencode.llm.purpose"] === "continuation")!
+    expect(compaction.parentSpan).toBe(tracer.spans[1])
+    expect(summary.parentSpan).toBe(compaction)
+    expect(continuation.parentSpan).toBe(tracer.spans[1])
+    expect(compaction.attributes["opencode.compaction.trigger"]).toBe("overflow")
+    expect(compaction.status.code).toBe(SpanStatusCode.OK)
+    expect(compaction.ended).toBe(true)
+    expect(tracer.spans.filter(span => span.name === "opencode.interaction")).toHaveLength(1)
+    expect(tracer.spans[1]!.status.code).toBe(SpanStatusCode.OK)
+    expect(tracer.spans[1]!.attributes[OUTPUT_VALUE]).toBe("final answer")
+    expect(tracer.spans[0]!.status.code).toBe(SpanStatusCode.OK)
+    expect(ctx.compactionsBySession.size).toBe(0)
+    expect(ctx.deferredAssistantErrors.size).toBe(0)
+  })
+
+  test("routes token-threshold auto compaction through the ready state", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    startMessageSpan("ses_1", "msg_initial", "user_1", "claude", "anthropic", 1000, ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_initial",
+      parentID: "user_1",
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+    expect(ctx.compactionsBySession.get("ses_1")?.phase).toBe("ready")
+
+    recordUserMessage(makeUserMessageUpdated("user_compact", "ses_1", 1200), ctx)
+    expect(ctx.compactionsBySession.get("ses_1")?.userMessageIDs.has("user_compact")).toBe(true)
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact"), ctx)
+    expect(ctx.compactionsBySession.get("ses_1")?.phase).toBe("summarizing")
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "claude",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+      true,
+    )
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      summary: true,
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+    compactionHandlers.handleSessionCompacted("ses_1", ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    const compaction = tracer.spans.find(span => span.name === "opencode.compaction")!
+    const summary = tracer.spans.find(span => span.attributes["opencode.llm.purpose"] === "compaction_summary")!
+    expect(compaction.parentSpan).toBe(tracer.spans[1])
+    expect(summary.parentSpan).toBe(compaction)
+    expect(compaction.attributes["opencode.compaction.overflow"]).toBe(false)
+    expect(compaction.attributes["opencode.compaction.trigger"]).toBe("auto")
+    expect(tracer.spans[1]!.status.code).toBe(SpanStatusCode.OK)
+  })
+
+  test("fails the original interaction when overflow is not followed by compaction", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    startMessageSpan("ses_1", "msg_overflow", "user_1", "claude", "anthropic", 1000, ctx)
+    handleSessionError(makeSessionError("ses_1", {
+      name: "ContextOverflowError",
+      data: { message: "context limit" },
+    }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_overflow",
+      parentID: "user_1",
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(tracer.spans[2]!.status.code).toBe(SpanStatusCode.ERROR)
+    expect(tracer.spans[1]!.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError: context limit",
+    })
+    expect(tracer.spans[0]!.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError: context limit",
+    })
+    expect(ctx.compactionsBySession.size).toBe(0)
+  })
+
+  test("uses the summary failure as the terminal recovery error", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    startMessageSpan("ses_1", "msg_overflow", "user_1", "claude", "anthropic", 1000, ctx)
+    handleSessionError(makeSessionError("ses_1", {
+      name: "ContextOverflowError",
+      data: { message: "context limit" },
+    }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_overflow",
+      parentID: "user_1",
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+    recordUserMessage(makeUserMessageUpdated("user_compact", "ses_1", 1200), ctx)
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact", { overflow: true }), ctx)
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "claude",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+      true,
+    )
+
+    handleSessionError(makeSessionError("ses_1", {
+      name: "ProviderAuthError",
+      data: { message: "auth failed" },
+    }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      summary: true,
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    const compaction = tracer.spans.find(span => span.name === "opencode.compaction")!
+    const summary = tracer.spans.find(span => span.attributes["opencode.llm.purpose"] === "compaction_summary")!
+    expect(summary.status.message).toBe("ProviderAuthError: auth failed")
+    expect(compaction.status.message).toBe("ProviderAuthError: auth failed")
+    expect(tracer.spans[1]!.status.message).toBe("ProviderAuthError: auth failed")
+    expect(tracer.spans[0]!.status.message).toBe("ProviderAuthError: auth failed")
+  })
+
+  test("excludes queued external messages when identifying the internal replay", () => {
+    const { ctx } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    startMessageSpan("ses_1", "msg_initial", "user_1", "claude", "anthropic", 1000, ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_initial",
+      parentID: "user_1",
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+    recordUserMessage(makeUserMessageUpdated("user_compact", "ses_1", 1200), ctx)
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact"), ctx)
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "claude",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+      true,
+    )
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      summary: true,
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+
+    handleInteractionStarted("user_queued", "ses_1", "build", "queued", "anthropic/claude", 1450, ctx)
+    recordUserMessage(makeUserMessageUpdated("user_queued", "ses_1", 1450), ctx)
+    recordUserMessage(makeUserMessageUpdated("user_replay", "ses_1", 1500), ctx)
+    compactionHandlers.handleSessionCompacted("ses_1", ctx)
+
+    expect(ctx.internalUserInteractions.get("user_replay")?.interactionID).toBe("user_1")
+    expect(ctx.internalUserInteractions.has("user_queued")).toBe(false)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+  })
+
+  test("preserves an interrupted compaction error for a late summary completion", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 900, ctx)
+    startMessageSpan("ses_1", "msg_initial", "user_1", "claude", "anthropic", 1000, ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_initial",
+      parentID: "user_1",
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+    recordUserMessage(makeUserMessageUpdated("user_compact", "ses_1", 1200), ctx)
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact"), ctx)
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "claude",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+      true,
+    )
+
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+    expect(tracer.spans[0]!.status.message).toBe(
+      "CompactionInterruptedError: compaction ended before completion",
+    )
+    expect(tracer.spans[1]!.ended).toBe(false)
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      summary: true,
+      time: { created: 1300, completed: 1500 },
+    }), ctx)
+
+    expect(tracer.spans[1]!.ended).toBe(true)
+    expect(tracer.spans[1]!.status.message).toBe(
+      "CompactionInterruptedError: compaction ended before completion",
+    )
+    expect(ctx.deferredAssistantErrors.size).toBe(0)
   })
 })
 

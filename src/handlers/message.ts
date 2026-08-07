@@ -37,6 +37,7 @@ import {
 } from "../util.ts"
 import type { HandlerContext, SessionAgentType } from "../types.ts"
 import { endInteractionSpan } from "../interaction.ts"
+import { compactionHandlers } from "../compaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
@@ -126,7 +127,16 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   const msg = e.properties.info
   if (msg.role !== "assistant") return
   const assistant = msg as AssistantMessage
-  setBoundedMap(ctx.assistantInteractions, assistant.id, assistant.parentID)
+  const existingInteractionID = ctx.assistantInteractions.get(assistant.id)
+  const resolution = existingInteractionID
+    ? undefined
+    : compactionHandlers.resolveAssistant({
+        sessionID: assistant.sessionID,
+        parentID: assistant.parentID,
+        summary: assistant.summary === true,
+      }, ctx)
+  const interactionID = existingInteractionID ?? resolution?.interactionID ?? assistant.parentID
+  setBoundedMap(ctx.assistantInteractions, assistant.id, interactionID)
   if (!assistant.time.completed) return
 
   const { sessionID } = assistant
@@ -158,11 +168,14 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     run.cost += assistant.cost
     run.messages += 1
   }
-  const interactionID = ctx.assistantInteractions.get(assistant.id) ?? assistant.parentID
+  const effectiveError = assistant.error
+    ?? compactionHandlers.deferredError(sessionID, assistant.id, ctx)
   accumulateInteractionTotals(interactionID, totalTokens, assistant.cost, ctx)
 
   const outputText = ctx.messageOutputs.get(msgKey)
-  if (assistant.summary !== true && ctx.interactionSpans.has(interactionID)) {
+  if (effectiveError?.name !== "ContextOverflowError"
+    && assistant.summary !== true
+    && ctx.interactionSpans.has(interactionID)) {
     setBoundedMap(ctx.interactionCompletions, interactionID, {
       endTime: assistant.time.completed,
       output: outputText,
@@ -180,7 +193,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
       [LLM_TOKEN_COUNT_PROMPT_DETAILS_CACHE_READ]: assistant.tokens.cache.read,
       [LLM_TOKEN_COUNT_PROMPT_DETAILS_CACHE_WRITE]: assistant.tokens.cache.write,
       [LLM_TOKEN_COUNT_TOTAL]: totalTokens,
-      [LLM_FINISH_REASON]: assistant.error ? "error" : (assistant.finish ?? "stop"),
+      [LLM_FINISH_REASON]: effectiveError ? "error" : (assistant.finish ?? "stop"),
       [LLM_COST_TOTAL]: assistant.cost,
       ...(outputText && !telemetryOutput
         ? {
@@ -193,14 +206,23 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
       cost_usd: assistant.cost,
       duration_ms: duration,
     })
-    if (assistant.error) {
-      msgSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorSummary(assistant.error) })
+    if (effectiveError) {
+      msgSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorSummary(effectiveError) })
     } else {
       msgSpan.setStatus({ code: SpanStatusCode.OK })
     }
     msgSpan.end(outputEndTime)
     ctx.messageSpans.delete(msgKey)
   }
+  const completion = compactionHandlers.completeAssistant({
+    sessionID,
+    assistantID: assistant.id,
+    parentID: assistant.parentID,
+    interactionID,
+    summary: assistant.summary === true,
+    error: effectiveError,
+    spanContext: msgSpan?.spanContext(),
+  }, ctx)
   const requestKey = `${sessionID}:${assistant.parentID}`
   const remainingRequests = ctx.llmRequestContexts.get(requestKey)?.filter(request => request.messageID !== assistant.id)
   if (remainingRequests?.length) {
@@ -215,8 +237,9 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   ctx.llmTelemetryOutputs.delete(msgKey)
   ctx.pendingAssistantInteractions.delete(msgKey)
 
-  if (assistant.error || (!ctx.activeRunSpans.has(sessionID) && ctx.interactionSpans.has(interactionID))) {
-    const interactionError = assistant.error ? errorSummary(assistant.error) : undefined
+  if ((!completion.keepInteractionOpen && effectiveError)
+    || (!ctx.activeRunSpans.has(sessionID) && ctx.interactionSpans.has(interactionID))) {
+    const interactionError = effectiveError ? errorSummary(effectiveError) : undefined
     endInteractionSpan(
       interactionID,
       sessionID,
@@ -238,6 +261,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
  */
 export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: HandlerContext) {
   const part = e.properties.part
+  compactionHandlers.recordPart(part, ctx)
 
   if (part.type === "text") {
     const key = `${part.sessionID}:${part.messageID}`
@@ -364,10 +388,13 @@ export function startMessageSpan(
   startTime: number,
   ctx: HandlerContext,
   messageAgent?: string,
+  summary = false,
 ) {
   const msgKey = `${sessionID}:${messageID}`
-  setBoundedMap(ctx.assistantInteractions, messageID, parentID)
-  setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID: parentID })
+  const resolution = compactionHandlers.resolveAssistant({ sessionID, parentID, summary }, ctx)
+  const interactionID = resolution.interactionID
+  setBoundedMap(ctx.assistantInteractions, messageID, interactionID)
+  setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID })
   if (ctx.messageSpans.has(msgKey)) return
   const run = ctx.activeRunSpans.get(sessionID)
   const runAgent = getRunAgentMeta(sessionID, ctx)
@@ -377,13 +404,14 @@ export function startMessageSpan(
     run.agent = messageAgent
     run.span.setAttribute(AGENT_NAME, messageAgent)
   }
-  const inputText = ctx.interactionInputs.get(parentID)
+  const inputText = summary ? undefined : ctx.interactionInputs.get(interactionID)
 
   const msgSpan = ctx.tracer.startSpan(
     `${ctx.tracePrefix}llm`,
     {
       startTime,
       kind: SpanKind.CLIENT,
+      links: resolution.links,
       attributes: {
         [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.LLM,
         [SESSION_ID]: sessionID,
@@ -393,6 +421,7 @@ export function startMessageSpan(
         [LLM_PROVIDER]: providerID,
         "gen_ai.provider.name": genAiProviderName(providerID),
         [LLM_MODEL_NAME]: modelID,
+        "opencode.llm.purpose": resolution.purpose,
         [OUTPUT_VALUE]: "",
         [OUTPUT_MIME_TYPE]: MimeType.TEXT,
         ...(inputText
@@ -406,7 +435,7 @@ export function startMessageSpan(
         ...ctx.commonAttrs,
       },
     },
-    resolveInteractionTraceContext(parentID, ctx),
+    resolution.parentContext,
   )
   setBoundedMap(ctx.messageSpans, msgKey, msgSpan)
   const requestKey = `${sessionID}:${parentID}`
@@ -420,5 +449,10 @@ export function startMessageSpan(
       spanContext: msgSpan.spanContext(),
     },
   ])
-  setBoundedMap(ctx.activeMessageSpans, sessionID, { messageID, span: msgSpan })
+  setBoundedMap(ctx.activeMessageSpans, sessionID, {
+    messageID,
+    interactionID,
+    summary,
+    span: msgSpan,
+  })
 }

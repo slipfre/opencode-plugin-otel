@@ -84,6 +84,33 @@ export type LlmTelemetryBindings = {
   byLifecycleMetadata: WeakMap<object, LlmTelemetryTarget>
 }
 
+type ErrorInfo = { name: string; data?: unknown }
+
+type InternalUserInteraction = {
+  interactionID: string
+  compactionSpanContext?: SpanContext
+}
+
+type CompactionPhase = "ready" | "awaiting_compaction" | "summarizing" | "awaiting_resume" | "failing"
+
+type CompactionTrigger = "auto" | "overflow" | "manual"
+
+type CompactionState = {
+  phase: CompactionPhase
+  sessionID: string
+  interactionID?: string
+  originAssistantID?: string
+  originAssistantSpanContext?: SpanContext
+  trigger?: CompactionTrigger
+  compactionUserMessageID?: string
+  summaryAssistantID?: string
+  triggerError?: ErrorInfo
+  recoveryError?: ErrorInfo
+  span?: Span
+  spanEnded: boolean
+  userMessageIDs: Set<string>
+}
+
 /** Shared context threaded through every event handler. */
 export type HandlerContext = {
   log: PluginLogger
@@ -98,6 +125,10 @@ export type HandlerContext = {
   activeInteractions: Map<string, string>
   assistantInteractions: Map<string, string>
   pendingAssistantInteractions: Map<string, { sessionID: string; interactionID: string }>
+  compactionsBySession: Map<string, CompactionState>
+  internalUserInteractions: Map<string, InternalUserInteraction>
+  deferredAssistantErrors: Map<string, ErrorInfo>
+  externalUserMessageIDs: Map<string, true>
   pendingSubagentRuns: Map<string, RunDetails>
   interactionInputs: Map<string, string>
   interactionTotals: Map<string, InteractionTotals>
@@ -108,6 +139,12 @@ export type HandlerContext = {
   llmRequestContexts: Map<string, LlmRequestContext[]>
   llmTelemetryBindings: LlmTelemetryBindings
   tracePropagationProviders: Set<string>
-  activeMessageSpans: Map<string, { messageID: string; span: Span; outputEndTime?: number }>
+  activeMessageSpans: Map<string, {
+    messageID: string
+    interactionID: string
+    summary: boolean
+    span: Span
+    outputEndTime?: number
+  }>
   llmTelemetryOutputs: Map<string, true>
 }
