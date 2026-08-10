@@ -17,8 +17,8 @@ import {
   handleSessionCreated,
   handleSessionIdle,
   handleSessionError,
-  handleInteractionStarted,
 } from "./handlers/session.ts"
+import { createInteractionState, interactionHandlers } from "./interaction.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
@@ -94,15 +94,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const rootContext = remoteContext ? () => remoteContext : () => ROOT_CONTEXT
   const pendingToolSpans = new Map()
   const activeRunSpans = new Map()
-  const interactionSpans = new Map()
-  const interactionSpanContexts = new Map()
-  const activeInteractions = new Map()
-  const assistantInteractions = new Map()
-  const pendingAssistantInteractions = new Map()
+  const interactionState = createInteractionState()
   const pendingSubagentRuns = new Map()
-  const interactionInputs = new Map()
-  const interactionTotals = new Map()
-  const interactionCompletions = new Map()
   const sessionParents = new Map()
   const messageSpans = new Map()
   const messageOutputs = new Map()
@@ -126,15 +119,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     tracePrefix: config.tracePrefix,
     rootContext,
     activeRunSpans,
-    interactionSpans,
-    interactionSpanContexts,
-    activeInteractions,
-    assistantInteractions,
-    pendingAssistantInteractions,
+    ...interactionState,
     pendingSubagentRuns,
-    interactionInputs,
-    interactionTotals,
-    interactionCompletions,
     sessionParents,
     messageSpans,
     messageOutputs,
@@ -214,10 +200,9 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
       handleChatHeaders(input, output, ctx)
     }),
 
-    "chat.message": safe("chat.message", async (input, output) => {
+    "chat.message": safe("chat.message", async (_input, output) => {
       userIDManager.refreshInBackground()
-      const agent = input.agent ?? "unknown"
-      const startTime = Date.now()
+      if (output.parts.length > 0 && output.parts.every(part => "synthetic" in part && part.synthetic === true)) return
       const promptText = output.parts.map((part) => {
         switch (part.type) {
           case "text":
@@ -232,14 +217,14 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
             return ""
         }
       }).filter(Boolean).join("\n")
-      const model = input.model ? `${input.model.providerID}/${input.model.modelID}` : "unknown"
-      handleInteractionStarted(
-        output.message.id,
-        input.sessionID,
-        agent,
+      const message = output.message
+      interactionHandlers.stage(
+        message.id,
+        message.sessionID,
+        message.agent,
         promptText,
-        model,
-        startTime,
+        `${message.model.providerID}/${message.model.modelID}`,
+        message.time.created,
         ctx,
       )
     }),
@@ -264,7 +249,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           if (info.role === "user") {
             break
           }
-          if (info.role === "assistant" && !info.time?.completed) {
+          if (info.role === "assistant") {
+            interactionHandlers.materialize(info.parentID, info.sessionID, ctx)
+          }
+          if (info.role === "assistant" && !info.time.completed) {
             startMessageSpan(
               info.sessionID,
               info.id,

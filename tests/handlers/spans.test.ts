@@ -23,7 +23,13 @@ import {
   USER_ID,
 } from "@arizeai/openinference-semantic-conventions"
 import type { Span } from "@opentelemetry/api"
-import { handleSessionCreated, handleSessionIdle, handleSessionError, handleInteractionStarted } from "../../src/handlers/session.ts"
+import { MAX_PENDING } from "../../src/types.ts"
+import {
+  handleSessionCreated,
+  handleSessionIdle,
+  handleSessionError,
+} from "../../src/handlers/session.ts"
+import { handleInteractionStarted, interactionHandlers } from "../../src/interaction.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "../../src/handlers/message.ts"
 import { remoteParentContext } from "../../src/trace-context.ts"
 import { makeCtx, makeTracer, type SpySpan } from "../helpers.ts"
@@ -150,6 +156,155 @@ describe("run and interaction spans", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1", 5000), ctx)
     expect(tracer.spans).toHaveLength(0)
+  })
+
+  test("starts a staged interaction only for the matching assistant parent", () => {
+    const { ctx, tracer } = makeCtx()
+    interactionHandlers.stage(
+      "user_1",
+      "ses_1",
+      "build",
+      "prompt",
+      "anthropic/claude",
+      1000,
+      ctx,
+    )
+
+    expect(tracer.spans).toHaveLength(0)
+    expect(interactionHandlers.materialize("user_other", "ses_1", ctx)).toBe(false)
+    expect(interactionHandlers.materialize("user_1", "ses_other", ctx)).toBe(false)
+    expect(interactionHandlers.materialize("user_1", "ses_1", ctx)).toBe(true)
+
+    expect(tracer.spans).toHaveLength(2)
+    expect(tracer.spans[0]!.name).toBe("opencode.run")
+    expect(tracer.spans[0]!.startTime).toBe(1000)
+    expect(tracer.spans[1]!.name).toBe("opencode.interaction")
+    expect(tracer.spans[1]!.startTime).toBe(1000)
+    expect(tracer.spans[1]!.attributes[INPUT_VALUE]).toBe("prompt")
+    expect(tracer.spans[1]!.attributes[AGENT_NAME]).toBe("build")
+    expect(tracer.spans[1]!.attributes["opencode.model"]).toBe("anthropic/claude")
+    expect(ctx.pendingInteractions.has("user_1")).toBe(false)
+  })
+
+  test("keeps a queued interaction staged until its matching assistant starts", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "first", "anthropic/claude", 1000, ctx)
+    interactionHandlers.stage(
+      "user_2",
+      "ses_1",
+      "build",
+      "second",
+      "anthropic/claude",
+      2000,
+      ctx,
+    )
+
+    expect(tracer.spans).toHaveLength(2)
+    expect(ctx.pendingInteractions.has("user_2")).toBe(true)
+
+    expect(interactionHandlers.materialize("user_2", "ses_1", ctx)).toBe(true)
+    expect(tracer.spans).toHaveLength(3)
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[0])
+    expect(ctx.activeInteractions.get("ses_1")).toBe("user_2")
+  })
+
+  test("retains a noReply message across idle until a later assistant selects it", () => {
+    const { ctx, tracer } = makeCtx()
+    interactionHandlers.stage("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+
+    expect(tracer.spans).toHaveLength(0)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+    expect(ctx.pendingInteractions.has("user_1")).toBe(true)
+
+    expect(interactionHandlers.materialize("user_1", "ses_1", ctx)).toBe(true)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+    expect(ctx.pendingInteractions.size).toBe(0)
+    expect(tracer.spans.filter(span => span.name === "opencode.interaction")).toHaveLength(1)
+  })
+
+  test("parents the first assistant span to the materialized interaction", () => {
+    const { ctx, tracer } = makeCtx()
+    interactionHandlers.stage("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+
+    expect(interactionHandlers.materialize("user_1", "ses_1", ctx)).toBe(true)
+    expect(tracer.spans).toHaveLength(2)
+    startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1100, ctx)
+    expect(tracer.spans[2]!.parentSpan).toBe(tracer.spans[1])
+  })
+
+  test("materializes before handling a first-seen completed assistant", () => {
+    const { ctx, tracer } = makeCtx()
+    interactionHandlers.stage("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    const completed = makeAssistantMessageUpdated({
+      id: "msg_1",
+      parentID: "user_1",
+      time: { created: 1100, completed: 1200 },
+    })
+
+    expect(interactionHandlers.materialize("user_1", "ses_1", ctx)).toBe(true)
+    handleMessageUpdated(completed, ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(ctx.pendingInteractions.has("user_1")).toBe(false)
+    expect(ctx.activeRunSpans.has("ses_1")).toBe(false)
+    expect(ctx.interactionSpans.has("user_1")).toBe(false)
+    expect(tracer.spans).toHaveLength(2)
+    expect(tracer.spans.every(span => span.ended)).toBe(true)
+  })
+
+  test("does not create a staged interaction on session error and keeps it available for retry", () => {
+    const { ctx, tracer } = makeCtx()
+    interactionHandlers.stage("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+
+    handleSessionError(makeSessionError("ses_1", { name: "AgentNotFoundError" }), ctx)
+
+    expect(ctx.pendingInteractions.has("user_1")).toBe(true)
+    expect(tracer.spans).toHaveLength(0)
+  })
+
+  test("keeps staged interactions bounded and evicts the oldest entry", () => {
+    const { ctx } = makeCtx()
+    for (let i = 0; i <= MAX_PENDING; i++) {
+      interactionHandlers.stage(
+        `user_${i}`,
+        `ses_${i}`,
+        "build",
+        `prompt ${i}`,
+        "anthropic/claude",
+        i,
+        ctx,
+      )
+    }
+
+    expect(ctx.pendingInteractions.size).toBe(MAX_PENDING)
+    expect(ctx.pendingInteractions.has("user_0")).toBe(false)
+    expect(ctx.pendingInteractions.has(`user_${MAX_PENDING}`)).toBe(true)
+  })
+
+  test("consumes subagent task correlation only when a staged interaction materializes", () => {
+    const { ctx, tracer } = makeCtx()
+    ctx.pendingSubagentRuns.set("ses_child", {
+      agentType: "subagent",
+      parentSessionID: "ses_parent",
+      taskCallID: "call_task",
+    })
+    interactionHandlers.stage(
+      "user_child",
+      "ses_child",
+      "review",
+      "review this",
+      "anthropic/claude",
+      1000,
+      ctx,
+    )
+    expect(ctx.pendingSubagentRuns.has("ses_child")).toBe(true)
+    expect(tracer.spans).toHaveLength(0)
+
+    interactionHandlers.materialize("user_child", "ses_child", ctx)
+    expect(ctx.pendingSubagentRuns.has("ses_child")).toBe(false)
+    expect(tracer.spans[0]!.attributes["agent.type"]).toBe("subagent")
+    expect(tracer.spans[0]!.attributes["task.call_id"]).toBe("call_task")
+    expect(tracer.spans[1]!.attributes["task.call_id"]).toBe("call_task")
   })
 
   test("subagent run span carries session attributes", () => {
@@ -442,6 +597,7 @@ describe("run and interaction spans", () => {
     }), ctx)
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
 
+    ctx.pendingSubagentRuns.set("ses_1", { agentType: "subagent", taskCallID: "call_future" })
     handleInteractionStarted("user_1", "ses_1", "build", "", "anthropic/claude", 1000, ctx)
 
     expect(tracer.spans).toHaveLength(2)
@@ -449,6 +605,7 @@ describe("run and interaction spans", () => {
     expect(ctx.interactionSpans.has("user_1")).toBe(false)
     expect(ctx.activeInteractions.has("ses_1")).toBe(false)
     expect(ctx.interactionTotals.has("user_1")).toBe(false)
+    expect(ctx.pendingSubagentRuns.has("ses_1")).toBe(true)
   })
 
   test("empty duplicate updates do not overwrite queued interaction inputs", () => {

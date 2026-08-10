@@ -1,4 +1,5 @@
 import type { HandlerContext } from "../src/types.ts"
+import { createInteractionState } from "../src/interaction.ts"
 import type { SpanOptions, Tracer, Context, SpanContext, SpanStatus, Attributes } from "@opentelemetry/api"
 import { ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api"
 
@@ -123,15 +124,8 @@ export function makeCtx(
     tracePrefix: "opencode.",
     rootContext: () => ROOT_CONTEXT,
     activeRunSpans: new Map(),
-    interactionSpans: new Map(),
-    interactionSpanContexts: new Map(),
-    activeInteractions: new Map(),
-    assistantInteractions: new Map(),
-    pendingAssistantInteractions: new Map(),
+    ...createInteractionState(),
     pendingSubagentRuns: new Map(),
-    interactionInputs: new Map(),
-    interactionTotals: new Map(),
-    interactionCompletions: new Map(),
     sessionParents: new Map(),
     messageSpans: new Map(),
     messageOutputs: new Map(),

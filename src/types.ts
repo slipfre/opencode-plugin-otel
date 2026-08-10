@@ -97,6 +97,13 @@ export type HandlerContext = {
   interactionSpanContexts: Map<string, SpanContext>
   activeInteractions: Map<string, string>
   assistantInteractions: Map<string, string>
+  pendingInteractions: Map<string, {
+    sessionID: string
+    agent: string
+    promptText: string
+    model: string
+    startTime: number
+  }>
   pendingAssistantInteractions: Map<string, { sessionID: string; interactionID: string }>
   pendingSubagentRuns: Map<string, RunDetails>
   interactionInputs: Map<string, string>

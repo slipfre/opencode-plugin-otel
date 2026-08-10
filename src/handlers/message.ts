@@ -36,28 +36,13 @@ import {
   resolveSessionTraceContext,
 } from "../util.ts"
 import type { HandlerContext, SessionAgentType } from "../types.ts"
-import { endInteractionSpan } from "../interaction.ts"
+import { interactionHandlers } from "../interaction.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
 
-function accumulateInteractionTotals(
-  interactionID: string,
-  tokens: number,
-  cost: number,
-  ctx: HandlerContext,
-) {
-  const existing = ctx.interactionTotals.get(interactionID)
-  if (!existing) return
-  setBoundedMap(ctx.interactionTotals, interactionID, {
-    tokens: existing.tokens + tokens,
-    cost: existing.cost + cost,
-    messages: existing.messages + 1,
-  })
-}
-
 function resolveToolTraceContext(sessionID: string, assistantMessageID: string, ctx: HandlerContext) {
-  const interactionID = ctx.assistantInteractions.get(assistantMessageID)
+  const interactionID = interactionHandlers.resolveAssistant(assistantMessageID, undefined, ctx)
   return interactionID
     ? resolveInteractionTraceContext(interactionID, ctx)
     : resolveSessionTraceContext(sessionID, ctx)
@@ -126,7 +111,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   const msg = e.properties.info
   if (msg.role !== "assistant") return
   const assistant = msg as AssistantMessage
-  setBoundedMap(ctx.assistantInteractions, assistant.id, assistant.parentID)
+  interactionHandlers.bindAssistant(assistant.id, assistant.parentID, ctx)
   if (!assistant.time.completed) return
 
   const { sessionID } = assistant
@@ -158,15 +143,12 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     run.cost += assistant.cost
     run.messages += 1
   }
-  const interactionID = ctx.assistantInteractions.get(assistant.id) ?? assistant.parentID
-  accumulateInteractionTotals(interactionID, totalTokens, assistant.cost, ctx)
+  const interactionID = interactionHandlers.resolveAssistant(assistant.id, assistant.parentID, ctx) ?? assistant.parentID
+  interactionHandlers.recordUsage(interactionID, totalTokens, assistant.cost, ctx)
 
   const outputText = ctx.messageOutputs.get(msgKey)
-  if (assistant.summary !== true && ctx.interactionSpans.has(interactionID)) {
-    setBoundedMap(ctx.interactionCompletions, interactionID, {
-      endTime: assistant.time.completed,
-      output: outputText,
-    })
+  if (assistant.summary !== true) {
+    interactionHandlers.recordCompletion(interactionID, assistant.time.completed, outputText, ctx)
   }
   const msgSpan = ctx.messageSpans.get(msgKey)
   if (msgSpan) {
@@ -213,11 +195,11 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     ctx.activeMessageSpans.delete(sessionID)
   }
   ctx.llmTelemetryOutputs.delete(msgKey)
-  ctx.pendingAssistantInteractions.delete(msgKey)
+  interactionHandlers.completeAssistant(msgKey, ctx)
 
-  if (assistant.error || (!ctx.activeRunSpans.has(sessionID) && ctx.interactionSpans.has(interactionID))) {
+  if (assistant.error || (!ctx.activeRunSpans.has(sessionID) && interactionHandlers.has(interactionID, ctx))) {
     const interactionError = assistant.error ? errorSummary(assistant.error) : undefined
-    endInteractionSpan(
+    interactionHandlers.end(
       interactionID,
       sessionID,
       interactionError ? SpanStatusCode.ERROR : SpanStatusCode.OK,
@@ -366,8 +348,7 @@ export function startMessageSpan(
   messageAgent?: string,
 ) {
   const msgKey = `${sessionID}:${messageID}`
-  setBoundedMap(ctx.assistantInteractions, messageID, parentID)
-  setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID: parentID })
+  interactionHandlers.trackAssistant(messageID, msgKey, sessionID, parentID, ctx)
   if (ctx.messageSpans.has(msgKey)) return
   const run = ctx.activeRunSpans.get(sessionID)
   const runAgent = getRunAgentMeta(sessionID, ctx)
@@ -377,7 +358,7 @@ export function startMessageSpan(
     run.agent = messageAgent
     run.span.setAttribute(AGENT_NAME, messageAgent)
   }
-  const inputText = ctx.interactionInputs.get(parentID)
+  const inputText = interactionHandlers.input(parentID, ctx)
 
   const msgSpan = ctx.tracer.startSpan(
     `${ctx.tracePrefix}llm`,
