@@ -3,6 +3,7 @@ import { ROOT_CONTEXT } from "@opentelemetry/api"
 import pkg from "../package.json" with { type: "json" }
 import type {
   EventSessionCreated,
+  EventSessionCompacted,
   EventSessionIdle,
   EventSessionError,
   EventMessageUpdated,
@@ -15,10 +16,12 @@ import { setupOtel } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
 import {
   handleSessionCreated,
+  handleSessionCompacted,
   handleSessionIdle,
   handleSessionError,
 } from "./handlers/session.ts"
 import { createInteractionState, interactionHandlers } from "./interaction.ts"
+import { compactionHandlers, createCompactionState } from "./compaction.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
@@ -95,6 +98,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const pendingToolSpans = new Map()
   const activeRunSpans = new Map()
   const interactionState = createInteractionState()
+  const compactionState = createCompactionState()
   const pendingSubagentRuns = new Map()
   const sessionParents = new Map()
   const messageSpans = new Map()
@@ -120,6 +124,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     rootContext,
     activeRunSpans,
     ...interactionState,
+    ...compactionState,
     pendingSubagentRuns,
     sessionParents,
     messageSpans,
@@ -235,6 +240,9 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         case "session.created":
           await handleSessionCreated(event as EventSessionCreated, ctx)
           break
+        case "session.compacted":
+          handleSessionCompacted(event as EventSessionCompacted, ctx)
+          break
         case "session.idle":
           handleSessionIdle(event as EventSessionIdle, ctx)
           await flushTelemetry("session.idle")
@@ -247,6 +255,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           const msgEvt = event as EventMessageUpdated
           const info = msgEvt.properties.info
           if (info.role === "user") {
+            compactionHandlers.recordUser(info, ctx)
             break
           }
           if (info.role === "assistant") {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { context, SpanStatusCode, trace, TraceFlags } from "@opentelemetry/api"
+import { context, SpanKind, SpanStatusCode, trace, TraceFlags } from "@opentelemetry/api"
 import {
   AGENT_NAME,
   INPUT_MIME_TYPE,
@@ -26,6 +26,7 @@ import type { Span } from "@opentelemetry/api"
 import { MAX_PENDING } from "../../src/types.ts"
 import {
   handleSessionCreated,
+  handleSessionCompacted,
   handleSessionIdle,
   handleSessionError,
 } from "../../src/handlers/session.ts"
@@ -35,6 +36,7 @@ import { remoteParentContext } from "../../src/trace-context.ts"
 import { makeCtx, makeTracer, type SpySpan } from "../helpers.ts"
 import type {
   EventSessionCreated,
+  EventSessionCompacted,
   EventSessionIdle,
   EventSessionError,
   EventMessageUpdated,
@@ -52,6 +54,10 @@ function makeSessionCreated(sessionID: string, createdAt = 1000, parentID?: stri
 
 function makeSessionIdle(sessionID: string): EventSessionIdle {
   return { type: "session.idle", properties: { sessionID } } as EventSessionIdle
+}
+
+function makeSessionCompacted(sessionID: string): EventSessionCompacted {
+  return { type: "session.compacted", properties: { sessionID } } as EventSessionCompacted
 }
 
 function makeSessionError(sessionID?: string, error?: { name: string }): EventSessionError {
@@ -133,6 +139,46 @@ function makeTextPartUpdated(text: string, sessionID = "ses_1", messageID = "msg
   return {
     type: "message.part.updated",
     properties: { part: { type: "text", sessionID, messageID, text } },
+  } as unknown as EventMessagePartUpdated
+}
+
+function makeSyntheticTextPartUpdated(
+  text: string,
+  sessionID: string,
+  messageID: string,
+): EventMessagePartUpdated {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: `part_${messageID}`,
+        type: "text",
+        sessionID,
+        messageID,
+        text,
+        synthetic: true,
+        metadata: { compaction_continue: true },
+      },
+    },
+  } as unknown as EventMessagePartUpdated
+}
+
+function makeCompactionPartUpdated(
+  messageID: string,
+  auto: boolean,
+  sessionID = "ses_1",
+): EventMessagePartUpdated {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: `part_${messageID}`,
+        type: "compaction",
+        sessionID,
+        messageID,
+        auto,
+      },
+    },
   } as unknown as EventMessagePartUpdated
 }
 
@@ -817,6 +863,230 @@ describe("run and interaction spans", () => {
     expect(ctx.activeRunSpans.size).toBe(0)
     expect(ctx.interactionSpans.size).toBe(0)
     expect(ctx.interactionTotals.size).toBe(0)
+  })
+})
+
+describe("compaction spans", () => {
+  test("keeps automatic compaction and continuation in the originating interaction", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    const run = tracer.spans[0]!
+    const interaction = tracer.spans[1]!
+
+    startMessageSpan("ses_1", "msg_before", "user_1", "claude", "anthropic", 1100, ctx, "build")
+    handleMessagePartUpdated(makeTextPartUpdated("before compact", "ses_1", "msg_before"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_before",
+      parentID: "user_1",
+      mode: "build",
+      cost: 0.01,
+      time: { created: 1100, completed: 1200 },
+    }), ctx)
+
+    const compactPart = makeCompactionPartUpdated("user_compact", true)
+    handleMessagePartUpdated(compactPart, ctx)
+    handleMessagePartUpdated(compactPart, ctx)
+
+    const compactions = tracer.spans.filter(span => span.name === "opencode.compaction")
+    expect(compactions).toHaveLength(1)
+    const compaction = compactions[0]!
+    expect(compaction.parentSpan).toBe(interaction)
+    expect(compaction.kind).toBe(SpanKind.INTERNAL)
+    expect(compaction.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.CHAIN)
+    expect(compaction.attributes[SESSION_ID]).toBe("ses_1")
+    expect(compaction.attributes["opencode.compaction.id"]).toBe("user_compact")
+    expect(compaction.attributes["opencode.compaction.auto"]).toBe(true)
+
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "compact-model",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+    )
+    const summary = tracer.spans.at(-1)!
+    expect(summary.parentSpan).toBe(compaction)
+    expect(summary.kind).toBe(SpanKind.CLIENT)
+    expect(summary.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.LLM)
+    expect(summary.attributes["opencode.message.id"]).toBe("msg_summary")
+    expect(summary.attributes["opencode.compaction.id"]).toBe("user_compact")
+    expect(summary.attributes["opencode.llm.purpose"]).toBe("compaction")
+    handleMessagePartUpdated(makeTextPartUpdated("compact summary", "ses_1", "msg_summary"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      modelID: "compact-model",
+      mode: "compaction",
+      summary: true,
+      cost: 0.02,
+      tokens: { input: 20, output: 10, reasoning: 2, cache: { read: 3, write: 1 } },
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+    expect(summary.ended).toBe(true)
+    expect(compaction.ended).toBe(false)
+
+    handleMessagePartUpdated(makeSyntheticTextPartUpdated(
+      "Continue if you have next steps.",
+      "ses_1",
+      "user_continue",
+    ), ctx)
+    handleSessionCompacted(makeSessionCompacted("ses_1"), ctx)
+    expect(compaction.ended).toBe(true)
+    expect(compaction.status.code).not.toBe(SpanStatusCode.ERROR)
+
+    startMessageSpan("ses_1", "msg_after", "user_continue", "claude", "anthropic", 1500, ctx, "build")
+    const after = tracer.spans.at(-1)!
+    expect(after.parentSpan).toBe(interaction)
+    expect(after.parentSpan).not.toBe(compaction)
+    handleMessagePartUpdated(makeTextPartUpdated("final answer", "ses_1", "msg_after"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_after",
+      parentID: "user_continue",
+      mode: "build",
+      cost: 0.03,
+      tokens: { input: 30, output: 15, reasoning: 5, cache: { read: 2, write: 1 } },
+      time: { created: 1500, completed: 1600 },
+    }), ctx)
+
+    expect(new Set(tracer.spans.map(span => span.spanContext().traceId))).toEqual(new Set([run.spanContext().traceId]))
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(run.attributes["run.total_tokens"]).toBe(239)
+    expect(run.attributes["run.total_cost_usd"]).toBeCloseTo(0.06)
+    expect(run.attributes["run.total_messages"]).toBe(3)
+    expect(run.attributes[OUTPUT_VALUE]).toBe("final answer")
+    expect(interaction.attributes["interaction.total_tokens"]).toBe(239)
+    expect(interaction.attributes["interaction.total_cost_usd"]).toBeCloseTo(0.06)
+    expect(interaction.attributes["interaction.total_messages"]).toBe(3)
+    expect(interaction.attributes[OUTPUT_VALUE]).toBe("final answer")
+    expect(run.attributes[AGENT_NAME]).toBe("build")
+    expect(interaction.attributes[AGENT_NAME]).toBe("build")
+  })
+
+  test("materializes a staged interaction when compaction precedes its first assistant", () => {
+    const { ctx, tracer } = makeCtx()
+    interactionHandlers.stage(
+      "user_1",
+      "ses_1",
+      "build",
+      "prompt near the context limit",
+      "anthropic/claude",
+      1000,
+      ctx,
+    )
+
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact", true), ctx)
+
+    expect(tracer.spans.map(span => span.name)).toEqual([
+      "opencode.run",
+      "opencode.interaction",
+      "opencode.compaction",
+    ])
+    const run = tracer.spans[0]!
+    const interaction = tracer.spans[1]!
+    const compaction = tracer.spans[2]!
+    expect(interaction.parentSpan).toBe(run)
+    expect(compaction.parentSpan).toBe(interaction)
+    expect(ctx.pendingInteractions.has("user_1")).toBe(false)
+    expect(ctx.activeInteractions.get("ses_1")).toBe("user_1")
+
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "compact-model",
+      "anthropic",
+      1100,
+      ctx,
+      "compaction",
+    )
+    const summary = tracer.spans.at(-1)!
+    expect(summary.parentSpan).toBe(compaction)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      modelID: "compact-model",
+      mode: "compaction",
+      summary: true,
+      time: { created: 1100, completed: 1200 },
+    }), ctx)
+    handleMessagePartUpdated(makeSyntheticTextPartUpdated(
+      "Continue if you have next steps.",
+      "ses_1",
+      "user_continue",
+    ), ctx)
+    handleSessionCompacted(makeSessionCompacted("ses_1"), ctx)
+
+    startMessageSpan("ses_1", "msg_final", "user_continue", "claude", "anthropic", 1300, ctx, "build")
+    const final = tracer.spans.at(-1)!
+    expect(final.parentSpan).toBe(interaction)
+    handleMessagePartUpdated(makeTextPartUpdated("final answer", "ses_1", "msg_final"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_final",
+      parentID: "user_continue",
+      mode: "build",
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(run.attributes["run.total_messages"]).toBe(2)
+    expect(interaction.attributes["interaction.total_messages"]).toBe(2)
+    expect(interaction.attributes[OUTPUT_VALUE]).toBe("final answer")
+    expect(new Set(tracer.spans.map(span => span.spanContext().traceId)).size).toBe(1)
+  })
+
+  test("parents manual compaction to the run without inventing an interaction", () => {
+    const { ctx, tracer } = makeCtx()
+
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact", false), ctx)
+
+    expect(tracer.spans.map(span => span.name)).toEqual([
+      "opencode.run",
+      "opencode.compaction",
+    ])
+    const run = tracer.spans[0]!
+    const compaction = tracer.spans[1]!
+    expect(compaction.parentSpan).toBe(run)
+    expect(compaction.kind).toBe(SpanKind.INTERNAL)
+    expect(compaction.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.CHAIN)
+    expect(compaction.attributes["opencode.compaction.id"]).toBe("user_compact")
+    expect(compaction.attributes["opencode.compaction.auto"]).toBe(false)
+    expect(tracer.spans.filter(span => span.name === "opencode.interaction")).toHaveLength(0)
+    expect(ctx.activeInteractions.has("ses_1")).toBe(false)
+
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "compact-model",
+      "anthropic",
+      1000,
+      ctx,
+      "compaction",
+    )
+    const summary = tracer.spans.at(-1)!
+    expect(summary.parentSpan).toBe(compaction)
+    handleMessagePartUpdated(makeTextPartUpdated("manual compact summary", "ses_1", "msg_summary"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      modelID: "compact-model",
+      mode: "compaction",
+      summary: true,
+      time: { created: 1000, completed: 1100 },
+    }), ctx)
+    expect(compaction.ended).toBe(false)
+    handleSessionCompacted(makeSessionCompacted("ses_1"), ctx)
+    expect(compaction.ended).toBe(true)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(tracer.spans.every(span => span.ended)).toBe(true)
+    expect(run.attributes["run.total_messages"]).toBe(1)
+    expect(run.attributes[OUTPUT_VALUE]).toBeUndefined()
+    expect(new Set(tracer.spans.map(span => span.spanContext().traceId)).size).toBe(1)
   })
 })
 

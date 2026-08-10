@@ -1,7 +1,8 @@
 import type { HandlerContext } from "../src/types.ts"
 import { createInteractionState } from "../src/interaction.ts"
-import type { SpanOptions, Tracer, Context, SpanContext, SpanStatus, Attributes } from "@opentelemetry/api"
-import { ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api"
+import { createCompactionState } from "../src/compaction.ts"
+import type { SpanOptions, Tracer, Context, SpanContext, SpanStatus, Attributes, Link } from "@opentelemetry/api"
+import { ROOT_CONTEXT, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 
 export type SpyPluginLog = {
   calls: Array<{ level: string; message: string; extra?: Record<string, unknown> }>
@@ -15,6 +16,8 @@ export type SpySpan = {
   ended: boolean
   status: SpanStatus
   attributes: Record<string, unknown>
+  kind: SpanKind
+  links: Link[]
   parentSpan: SpySpan | undefined
   parentSpanContext: SpanContext | undefined
   setStatus(status: SpanStatus): SpySpan
@@ -47,6 +50,8 @@ function makeSpan(
   parentSpan?: SpySpan,
   parentSpanContext?: SpanContext,
   ownSpanContext?: SpanContext,
+  kind = SpanKind.INTERNAL,
+  links: Link[] = [],
 ): SpySpan {
   const context = ownSpanContext ?? {
     traceId: "00000000000000000000000000000001",
@@ -60,6 +65,8 @@ function makeSpan(
     ended: false,
     status: { code: SpanStatusCode.UNSET },
     attributes: {},
+    kind,
+    links,
     parentSpan,
     parentSpanContext,
     setStatus(s) { span.status = s; return span },
@@ -77,13 +84,14 @@ function makeSpan(
 
 export function makeTracer(): SpyTracer {
   let nextSpanID = 1
+  let nextTraceID = 1
   const tracer: SpyTracer = {
     spans: [],
     startSpan(name, options, ctx) {
       const parentFromCtx = ctx ? trace.getSpan(ctx) as SpySpan | undefined : undefined
       const parentSpanContext = ctx ? trace.getSpanContext(ctx) ?? undefined : undefined
       const ownSpanContext: SpanContext = {
-        traceId: parentSpanContext?.traceId ?? "00000000000000000000000000000001",
+        traceId: parentSpanContext?.traceId ?? (nextTraceID++).toString(16).padStart(32, "0"),
         spanId: (nextSpanID++).toString(16).padStart(16, "0"),
         traceFlags: parentSpanContext?.traceFlags ?? 1,
         ...(parentSpanContext?.traceState ? { traceState: parentSpanContext.traceState } : {}),
@@ -94,6 +102,8 @@ export function makeTracer(): SpyTracer {
         parentFromCtx,
         parentSpanContext,
         ownSpanContext,
+        options?.kind ?? SpanKind.INTERNAL,
+        options?.links ? [...options.links] : [],
       )
       if (options?.attributes) Object.assign(span.attributes, options.attributes)
       tracer.spans.push(span)
@@ -125,6 +135,7 @@ export function makeCtx(
     rootContext: () => ROOT_CONTEXT,
     activeRunSpans: new Map(),
     ...createInteractionState(),
+    ...createCompactionState(),
     pendingSubagentRuns: new Map(),
     sessionParents: new Map(),
     messageSpans: new Map(),

@@ -3,6 +3,9 @@ export type ExportedSpan = {
   traceId: string
   spanId: string
   parentSpanId: string
+  kind: number
+  startTimeUnixNano: string
+  endTimeUnixNano: string
   attributes: Record<string, unknown>
   resource: Record<string, unknown>
   status: Record<string, unknown>
@@ -58,6 +61,9 @@ function flattenExport(value: unknown): ExportedSpan[] {
           traceId: typeof span.traceId === "string" ? span.traceId : "",
           spanId: typeof span.spanId === "string" ? span.spanId : "",
           parentSpanId: typeof span.parentSpanId === "string" ? span.parentSpanId : "",
+          kind: typeof span.kind === "number" ? span.kind : Number(span.kind),
+          startTimeUnixNano: typeof span.startTimeUnixNano === "string" ? span.startTimeUnixNano : "",
+          endTimeUnixNano: typeof span.endTimeUnixNano === "string" ? span.endTimeUnixNano : "",
           attributes: decodeAttributes(span.attributes),
           resource,
           status: isRecord(span.status) ? span.status : {},

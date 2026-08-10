@@ -51,6 +51,29 @@ type InteractionCompletion = {
   output?: string
 }
 
+type InteractionAlias = {
+  sessionID: string
+  ownerInteractionID: string
+}
+
+type UserMessageDetails = {
+  sessionID: string
+  agent: string
+  startTime: number
+}
+
+type CompactionRecord = {
+  sessionID: string
+  markerMessageID: string
+  ownerInteractionID?: string
+  auto: boolean
+  spanContext: SpanContext
+}
+
+type ActiveCompactionSpan = CompactionRecord & {
+  span: Span
+}
+
 /** Live run span with its accumulated usage, agent metadata, and interaction state. */
 export type ActiveRunSpan = {
   span: Span
@@ -96,6 +119,7 @@ export type HandlerContext = {
   interactionSpans: Map<string, Span>
   interactionSpanContexts: Map<string, SpanContext>
   activeInteractions: Map<string, string>
+  interactionAliases: Map<string, InteractionAlias>
   assistantInteractions: Map<string, string>
   pendingInteractions: Map<string, {
     sessionID: string
@@ -109,6 +133,10 @@ export type HandlerContext = {
   interactionInputs: Map<string, string>
   interactionTotals: Map<string, InteractionTotals>
   interactionCompletions: Map<string, InteractionCompletion>
+  userMessages: Map<string, UserMessageDetails>
+  activeCompactions: Map<string, ActiveCompactionSpan>
+  compactionRecords: Map<string, CompactionRecord>
+  recentCompactions: Map<string, CompactionRecord>
   sessionParents: Map<string, string>
   messageSpans: Map<string, Span>
   messageOutputs: Map<string, string>

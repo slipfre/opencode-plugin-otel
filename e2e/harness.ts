@@ -18,6 +18,7 @@ type FixtureOptions = {
   caseID: string
   replies: LlmReply[]
   pluginOptions?: PluginOptions
+  autoCompact?: boolean
 }
 
 export type RunResult = {
@@ -64,7 +65,7 @@ function providerConfig(baseURL: string) {
   }
 }
 
-function isolatedEnv(home: string, config: unknown) {
+function isolatedEnv(home: string, config: unknown, autoCompact: boolean) {
   const inherited: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue
@@ -72,7 +73,7 @@ function isolatedEnv(home: string, config: unknown) {
     if (normalized.startsWith("OPENCODE_") || normalized.startsWith("OTEL_")) continue
     inherited[normalized] = value
   }
-  return {
+  const env: Record<string, string> = {
     ...inherited,
     PWD: home,
     HOME: home,
@@ -86,10 +87,11 @@ function isolatedEnv(home: string, config: unknown) {
     OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
     OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
-    OPENCODE_DISABLE_AUTOCOMPACT: "1",
     OPENCODE_DISABLE_MODELS_FETCH: "1",
     OPENCODE_AUTH_CONTENT: "{}",
   }
+  if (!autoCompact) env["OPENCODE_DISABLE_AUTOCOMPACT"] = "1"
+  return env
 }
 
 async function terminate(proc: Bun.Subprocess) {
@@ -173,7 +175,7 @@ export async function createE2EFixture(options: FixtureOptions) {
         prompt,
       ], {
         cwd: home,
-        env: isolatedEnv(home, config),
+        env: isolatedEnv(home, config, options.autoCompact === true),
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -230,7 +232,7 @@ export async function createE2EFixture(options: FixtureOptions) {
         String(port),
       ], {
         cwd: home,
-        env: isolatedEnv(home, config),
+        env: isolatedEnv(home, config, options.autoCompact === true),
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -309,9 +311,10 @@ export async function createE2EFixture(options: FixtureOptions) {
       }
 
       let steered = false
+      let compacted = false
       return {
         async steer(guidancePrompt: string) {
-          if (steered) throw new Error("The active OpenCode run has already been steered")
+          if (steered || compacted) throw new Error("The active OpenCode run has already been advanced")
           try {
             await send(guidancePrompt)
             await waitFor("the steering message to be stored", 15_000, async () => {
@@ -332,6 +335,32 @@ export async function createE2EFixture(options: FixtureOptions) {
               if (llm.pending() !== 0) return false
               const response = await request("/session/status")
               const statuses = await response.json() as Record<string, unknown>
+              return statuses[sessionID] === undefined
+            })
+            return await finalize()
+          } catch (error) {
+            return await finalize(error)
+          }
+        },
+        async manualCompact(): Promise<RunResult> {
+          if (steered || compacted) throw new Error("The active OpenCode run has already been advanced")
+          compacted = true
+          try {
+            llm.release()
+            await waitFor("the initial run to finish", timeoutMs, async () => {
+              const response = await request("/session/status")
+              const statuses = await response.json() as Record<string, unknown>
+              return statuses[sessionID] === undefined
+            })
+            const response = await request(`/session/${sessionID}/summarize`, {
+              method: "POST",
+              body: JSON.stringify({ providerID: "test", modelID: "test-model" }),
+            })
+            if (await response.json() !== true) throw new Error("OpenCode did not confirm manual compaction")
+            await waitFor("manual compaction to finish", timeoutMs, async () => {
+              if (llm.pending() !== 0) return false
+              const statusResponse = await request("/session/status")
+              const statuses = await statusResponse.json() as Record<string, unknown>
               return statuses[sessionID] === undefined
             })
             return await finalize()

@@ -1,9 +1,15 @@
 import { SpanStatusCode } from "@opentelemetry/api"
-import type { EventSessionCreated, EventSessionIdle, EventSessionError } from "@opencode-ai/sdk"
+import type {
+  EventSessionCreated,
+  EventSessionCompacted,
+  EventSessionIdle,
+  EventSessionError,
+} from "@opencode-ai/sdk"
 import { errorSummary, setBoundedMap } from "../util.ts"
 import type { HandlerContext } from "../types.ts"
 import { interactionHandlers } from "../interaction.ts"
 import { endRunSpan } from "../run.ts"
+import { compactionHandlers } from "../compaction.ts"
 
 /** Records the parent-session relationship used to identify and parent subagent runs. */
 export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext) {
@@ -48,9 +54,11 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
 /** Records totals, ends the active run, and clears pending state. */
 export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   const sessionID = e.properties.sessionID
+  compactionHandlers.fail(sessionID, "session ended before compaction completed", ctx)
   sweepSession(sessionID, ctx)
   interactionHandlers.endSession(sessionID, SpanStatusCode.OK, ctx)
   endRunSpan(sessionID, SpanStatusCode.OK, ctx)
+  compactionHandlers.clearRecent(sessionID, ctx)
 }
 
 /** Ends the active run with error status and clears pending state. */
@@ -58,10 +66,18 @@ export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
   const rawID = e.properties.sessionID
   const sessionID = rawID ?? "unknown"
   const error = errorSummary(e.properties.error)
+  compactionHandlers.fail(sessionID, error, ctx)
   sweepSession(sessionID, ctx)
   if (rawID) {
     interactionHandlers.endSession(rawID, SpanStatusCode.ERROR, ctx, error)
     endRunSpan(rawID, SpanStatusCode.ERROR, ctx, error)
   }
+  compactionHandlers.clearRecent(sessionID, ctx)
   ctx.log("error", "otel: session.error", { sessionID, error })
 }
+
+function handleSessionCompacted(e: EventSessionCompacted, ctx: HandlerContext) {
+  compactionHandlers.complete(e.properties.sessionID, ctx)
+}
+
+export { handleSessionCompacted }

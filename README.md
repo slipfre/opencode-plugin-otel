@@ -27,13 +27,18 @@ The trace hierarchy separates one serialized opencode execution from the user me
 opencode.run (CHAIN, one session busy-to-idle execution)
 ├── opencode.interaction (AGENT, one user message)
 │   ├── opencode.llm
+│   ├── opencode.compaction (CHAIN)
+│   │   └── opencode.llm (compaction summary)
+│   ├── opencode.llm (post-compaction continuation)
 │   └── opencode.tool.<name>
 └── opencode.interaction (AGENT, a queued user message in the same run)
 ```
 
 A new `opencode.run` starts when a session begins working and ends on `session.idle` or `session.error`. Another prompt submitted while that session is working creates another `opencode.interaction` under the existing run. Different sessions can have independent runs at the same time.
 
-Run spans include `opencode.run.id`, use the OpenInference `CHAIN` kind, expose interaction inputs as a JSON array, and use the final interaction output as the run output. Interaction spans include `opencode.interaction.id` and use the OpenInference `AGENT` kind. LLM and tool spans include model, token, cost, input, output, status, and timing attributes when available.
+Automatic compaction remains inside the interaction that triggered it. The summary LLM is a child of the `opencode.compaction` span, while post-compaction LLM and tool spans return to the originating interaction. Manual compaction started without an active interaction is parented directly to a new run.
+
+Run spans include `opencode.run.id`, use the OpenInference `CHAIN` kind, expose interaction inputs as a JSON array, and use the final interaction output as the run output. Interaction spans include `opencode.interaction.id` and use the OpenInference `AGENT` kind. Compaction spans use the OpenInference `CHAIN` kind and include `opencode.compaction.id` and `opencode.compaction.auto`. Their summary LLM spans include `opencode.llm.purpose=compaction`. LLM and tool spans include model, token, cost, input, output, status, and timing attributes when available.
 
 ## Installation
 

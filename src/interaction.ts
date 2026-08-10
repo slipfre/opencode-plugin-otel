@@ -24,6 +24,7 @@ function createInteractionState(): Pick<
   | "interactionSpans"
   | "interactionSpanContexts"
   | "activeInteractions"
+  | "interactionAliases"
   | "assistantInteractions"
   | "pendingInteractions"
   | "pendingAssistantInteractions"
@@ -38,6 +39,7 @@ function createInteractionState(): Pick<
     interactionSpanContexts: new Map(),
     // sessionID -> interactionID currently selected for session-level child span correlation.
     activeInteractions: new Map(),
+    interactionAliases: new Map(),
     // assistant message ID -> interactionID that owns the assistant and its tool/message events.
     assistantInteractions: new Map(),
     // user message ID -> canonical staged metadata awaiting an assistant with the matching parentID.
@@ -54,6 +56,22 @@ function createInteractionState(): Pick<
     // Entries are deleted together with their interaction span.
     interactionCompletions: new Map(),
   }
+}
+
+function resolveInteractionOwner(
+  messageID: string,
+  sessionID: string | undefined,
+  ctx: HandlerContext,
+) {
+  const pending = ctx.pendingInteractions.get(messageID)
+  if (
+    ctx.interactionSpans.has(messageID)
+    || ctx.interactionSpanContexts.has(messageID)
+    || (pending && (!sessionID || pending.sessionID === sessionID))
+  ) return messageID
+  const alias = ctx.interactionAliases.get(messageID)
+  if (!alias || (sessionID && alias.sessionID !== sessionID)) return
+  return alias.ownerInteractionID
 }
 
 function handleInteractionStarted(
@@ -224,11 +242,12 @@ const interactionHandlers = {
   },
 
   materialize(interactionID: string, sessionID: string, ctx: HandlerContext) {
-    const pending = ctx.pendingInteractions.get(interactionID)
+    const ownerInteractionID = resolveInteractionOwner(interactionID, sessionID, ctx) ?? interactionID
+    const pending = ctx.pendingInteractions.get(ownerInteractionID)
     if (pending?.sessionID !== sessionID) return false
-    ctx.pendingInteractions.delete(interactionID)
+    ctx.pendingInteractions.delete(ownerInteractionID)
     handleInteractionStarted(
-      interactionID,
+      ownerInteractionID,
       pending.sessionID,
       pending.agent,
       pending.promptText,
@@ -239,21 +258,41 @@ const interactionHandlers = {
     return true
   },
 
-  bindAssistant(assistantID: string, interactionID: string, ctx: HandlerContext) {
+  bindAlias(aliasID: string, sessionID: string, ownerInteractionID: string, ctx: HandlerContext) {
+    setBoundedMap(ctx.interactionAliases, aliasID, { sessionID, ownerInteractionID })
+  },
+
+  owner(messageID: string, sessionID: string | undefined, ctx: HandlerContext) {
+    return resolveInteractionOwner(messageID, sessionID, ctx)
+  },
+
+  latest(sessionID: string, ctx: HandlerContext) {
+    let interactionID = ctx.activeInteractions.get(sessionID)
+    for (const [pendingID, pending] of ctx.pendingInteractions) {
+      if (pending.sessionID !== sessionID) continue
+      if (!interactionID || pendingID > interactionID) interactionID = pendingID
+    }
+    return interactionID
+  },
+
+  bindAssistant(assistantID: string, interactionID: string | undefined, ctx: HandlerContext) {
+    if (!interactionID) return
     setBoundedMap(ctx.assistantInteractions, assistantID, interactionID)
   },
 
   resolveAssistant(assistantID: string, fallbackInteractionID: string | undefined, ctx: HandlerContext) {
-    return ctx.assistantInteractions.get(assistantID) ?? fallbackInteractionID
+    return ctx.assistantInteractions.get(assistantID)
+      ?? (fallbackInteractionID ? resolveInteractionOwner(fallbackInteractionID, undefined, ctx) : undefined)
   },
 
   trackAssistant(
     assistantID: string,
     msgKey: string,
     sessionID: string,
-    interactionID: string,
+    interactionID: string | undefined,
     ctx: HandlerContext,
   ) {
+    if (!interactionID) return
     setBoundedMap(ctx.assistantInteractions, assistantID, interactionID)
     setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID })
   },

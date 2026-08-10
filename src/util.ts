@@ -44,11 +44,18 @@ export function resolveInteractionTraceContext(
   interactionID: string,
   ctx: Pick<HandlerContext, "rootContext" | "interactionSpans" | "interactionSpanContexts">,
 ) {
+  return tryResolveInteractionTraceContext(interactionID, ctx) ?? ctx.rootContext()
+}
+
+function tryResolveInteractionTraceContext(
+  interactionID: string,
+  ctx: Pick<HandlerContext, "rootContext" | "interactionSpans" | "interactionSpanContexts">,
+) {
   const baseCtx = ctx.rootContext()
   const interactionSpan = ctx.interactionSpans.get(interactionID)
   if (interactionSpan) return trace.setSpan(baseCtx, interactionSpan)
   const interactionSpanContext = ctx.interactionSpanContexts.get(interactionID)
-  return interactionSpanContext ? trace.setSpanContext(baseCtx, interactionSpanContext) : baseCtx
+  return interactionSpanContext ? trace.setSpanContext(baseCtx, interactionSpanContext) : undefined
 }
 
 /** Resolves the best available trace parent for the current session execution. */
@@ -58,7 +65,12 @@ export function resolveSessionTraceContext(
 ) {
   const baseCtx = ctx.rootContext()
   const activeInteractionID = ctx.activeInteractions.get(sessionID)
-  if (activeInteractionID) return resolveInteractionTraceContext(activeInteractionID, ctx)
+  if (activeInteractionID) {
+    const interactionContext = tryResolveInteractionTraceContext(activeInteractionID, ctx)
+    if (interactionContext) return interactionContext
+  }
   const activeRun = ctx.activeRunSpans.get(sessionID)
   return activeRun ? trace.setSpan(baseCtx, activeRun.span) : baseCtx
 }
+
+export { tryResolveInteractionTraceContext }
