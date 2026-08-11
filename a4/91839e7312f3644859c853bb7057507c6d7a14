@@ -1,0 +1,43 @@
+src/index.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 12,28,101,125,243,290-295
+tests/helpers.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 133
+src/handlers/permission.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 1-14,16-22,24-125,135-145
+  s_54c9fe85ec0a10::t_a4c2508523bf6f 15,23
+  s_54c9fe85ec0a10::t_2f2e9ac370b062 126-134
+tests/handlers/permission.test.ts
+  s_54c9fe85ec0a10::t_3afa73b52ddfe1 1-37,61-224,226-228,248-269
+  s_54c9fe85ec0a10::t_ff2da52adfed90 38-60,229-247
+  s_54c9fe85ec0a10::t_a4c2508523bf6f 225
+README.md
+  s_54c9fe85ec0a10::t_6bb3fc50e68a54 34,42
+src/handlers/message.ts
+  s_54c9fe85ec0a10::t_2f2e9ac370b062 41,303-308
+src/handlers/session.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 13
+  s_54c9fe85ec0a10::t_a4c2508523bf6f 26
+src/types.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 33-39,130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a491839e7312f3644859c853bb7057507c6d7a14",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_54c9fe85ec0a10": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff003-ed77-75f2-b425-3618f6ee531e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
