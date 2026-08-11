@@ -31,6 +31,7 @@ opencode.run (CHAIN, one session busy-to-idle execution)
 │   │   └── opencode.llm (compaction summary)
 │   ├── opencode.llm (post-compaction continuation)
 │   └── opencode.tool.<name>
+│       └── opencode.permission.check (GUARDRAIL)
 └── opencode.interaction (AGENT, a queued user message in the same run)
 ```
 
@@ -38,7 +39,7 @@ A new `opencode.run` starts when a session begins working and ends on `session.i
 
 Automatic compaction remains inside the interaction that triggered it. The summary LLM is a child of the `opencode.compaction` span, while post-compaction LLM and tool spans return to the originating interaction. Provider context overflow is recorded as an errored LLM attempt followed by a successful overflow compaction in the same interaction. Manual compaction started without an active interaction is parented directly to a new run.
 
-Run spans include `opencode.run.id`, use the OpenInference `CHAIN` kind, expose interaction inputs as a JSON array, and use the final interaction output as the run output. Interaction spans include `opencode.interaction.id` and use the OpenInference `AGENT` kind. Compaction spans use the OpenInference `CHAIN` kind and include `opencode.compaction.id`, `opencode.compaction.auto`, and `opencode.compaction.overflow`. Overflow compactions also include `opencode.compaction.trigger_message.id`. Their summary LLM spans include `opencode.llm.purpose=compaction`. LLM and tool spans include model, token, cost, input, output, status, and timing attributes when available.
+Run spans include `opencode.run.id`, use the OpenInference `CHAIN` kind, expose interaction inputs as a JSON array, and use the final interaction output as the run output. Interaction spans include `opencode.interaction.id` and use the OpenInference `AGENT` kind. Compaction spans use the OpenInference `CHAIN` kind and include `opencode.compaction.id`, `opencode.compaction.auto`, and `opencode.compaction.overflow`. Overflow compactions also include `opencode.compaction.trigger_message.id`. Their summary LLM spans include `opencode.llm.purpose=compaction`. LLM and tool spans include model, token, cost, input, output, status, and timing attributes when available. Manual permission checks create OpenInference `GUARDRAIL` spans only when the request identifies an active tool span. They include the request, permission, tool, reply, grant result, and wait duration; uncorrelated checks are logged and do not fall back to interaction or run parents.
 
 ## Installation
 

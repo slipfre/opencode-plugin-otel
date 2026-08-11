@@ -1375,11 +1375,12 @@ describe("tool spans", () => {
     expect(tracer.spans[0]!.attributes["tool.result_size_bytes"]).toBe(expectedBytes)
   })
 
-  test("tool span error attr set on error status", () => {
+  test("tool span does not duplicate the error as custom attributes", () => {
     const { ctx, tracer } = makeCtx()
     handleMessagePartUpdated(makeToolPartUpdated("running"), ctx)
     handleMessagePartUpdated(makeToolPartUpdated("error"), ctx)
-    expect(tracer.spans[0]!.attributes["tool.error"]).toBe("fail")
+    expect(tracer.spans[0]!.attributes["tool.error"]).toBeUndefined()
+    expect(tracer.spans[0]!.attributes["error.type"]).toBeUndefined()
   })
 
   test("tool span removed from pendingToolSpans after completion", () => {

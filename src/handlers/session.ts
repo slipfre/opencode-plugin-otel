@@ -10,6 +10,7 @@ import type { HandlerContext } from "../types.ts"
 import { interactionHandlers } from "../interaction.ts"
 import { endRunSpan } from "../run.ts"
 import { compactionHandlers } from "../compaction.ts"
+import { permissionHandlers } from "./permission.ts"
 
 /** Records the parent-session relationship used to identify and parent subagent runs. */
 export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext) {
@@ -22,6 +23,7 @@ function sweepSession(
   ctx: HandlerContext,
   messageError?: { messageID: string; error: string; errorType?: string },
 ) {
+  permissionHandlers.endSession(sessionID, ctx, "session ended before permission reply")
   for (const [key, span] of ctx.pendingToolSpans) {
     if (span.sessionID === sessionID) {
       span.span.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before tool completed" })

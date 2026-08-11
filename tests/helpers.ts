@@ -130,6 +130,7 @@ export function makeCtx(
     log: pluginLog.fn,
     commonAttrs: { "project.id": projectID, ...extraCommonAttrs },
     pendingToolSpans: new Map(),
+    pendingPermissionSpans: new Map(),
     tracer: tracer as unknown as Tracer,
     tracePrefix: "opencode.",
     rootContext: () => ROOT_CONTEXT,

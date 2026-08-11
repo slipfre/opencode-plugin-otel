@@ -38,6 +38,7 @@ import {
 import type { HandlerContext, SessionAgentType } from "../types.ts"
 import { interactionHandlers } from "../interaction.ts"
 import { compactionHandlers } from "../compaction.ts"
+import { permissionHandlers } from "./permission.ts"
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 const LLM_FINISH_REASON = "llm.finish_reason"
@@ -299,6 +300,12 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
     const start = pending?.startMs ?? toolPart.state.time.start
     const end = toolPart.state.time.end
     if (end === undefined) return
+    permissionHandlers.endTool(
+      toolPart.sessionID,
+      toolPart.callID,
+      ctx,
+      "tool ended before permission reply",
+    )
     const success = toolPart.state.status === "completed"
     const { agentName, agentType } = getRunAgentMeta(toolPart.sessionID, ctx)
     const task = taskMetadata(toolPart)
@@ -340,7 +347,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
         [OUTPUT_VALUE]: err,
         [OUTPUT_MIME_TYPE]: MimeType.TEXT,
       })
-      toolSpan.setAttribute("tool.error", err)
+      if (pending?.errorType) toolSpan.setAttribute("error.type", pending.errorType)
       toolSpan.setStatus({ code: SpanStatusCode.ERROR, message: err })
     }
     toolSpan.end(end)

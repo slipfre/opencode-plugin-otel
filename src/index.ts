@@ -9,6 +9,7 @@ import type {
   EventMessageUpdated,
   EventMessagePartUpdated,
 } from "@opencode-ai/sdk"
+import type { EventPermissionAsked, EventPermissionReplied } from "@opencode-ai/sdk/v2"
 import { LEVELS, type Level, type HandlerContext } from "./types.ts"
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
@@ -24,6 +25,7 @@ import { createInteractionState, interactionHandlers } from "./interaction.ts"
 import { compactionHandlers, createCompactionState } from "./compaction.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handleChatHeaders } from "./handlers/chat-headers.ts"
+import { permissionHandlers } from "./handlers/permission.ts"
 import { registerAiTelemetry } from "./ai-telemetry.ts"
 import { createUserIDManager } from "./user-id.ts"
 
@@ -96,6 +98,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
   const rootContext = remoteContext ? () => remoteContext : () => ROOT_CONTEXT
   const pendingToolSpans = new Map()
+  const pendingPermissionSpans = new Map()
   const activeRunSpans = new Map()
   const interactionState = createInteractionState()
   const compactionState = createCompactionState()
@@ -119,6 +122,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     log,
     commonAttrs,
     pendingToolSpans,
+    pendingPermissionSpans,
     tracer,
     tracePrefix: config.tracePrefix,
     rootContext,
@@ -236,7 +240,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
 
     event: safe("event", async ({ event }) => {
       userIDManager.refreshInBackground()
-      switch (event.type) {
+      switch (event.type as string) {
         case "session.created":
           await handleSessionCreated(event as EventSessionCreated, ctx)
           break
@@ -282,6 +286,12 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         }
         case "message.part.updated":
           await handleMessagePartUpdated(event as EventMessagePartUpdated, ctx)
+          break
+        case "permission.asked":
+          await permissionHandlers.asked(event as unknown as EventPermissionAsked, ctx)
+          break
+        case "permission.replied":
+          await permissionHandlers.replied(event as unknown as EventPermissionReplied, ctx)
           break
       }
     }),
