@@ -1,0 +1,79 @@
+e2e/fake-llm.ts
+  s_dcc931307275bf::t_fcb8f8fa6b13ab 24-32,79-87
+  s_dcc931307275bf::t_2a39f240126d58 88
+src/compaction.ts
+  s_dcc931307275bf::t_bae0aa80f552bd 100,120-121,150-153,165-166,172,200-201,210-211,225
+  s_dcc931307275bf::t_adf27f5eebb78a 97-99
+  s_dcc931307275bf::t_9534c06ec94201 101-103
+  s_ef2915c3a78043::t_f4850e442d4217 20-23,26-30,37,76-96,116-118
+src/handlers/message.ts
+  s_dcc931307275bf::t_4869ad7ea0c05f 139-140
+  s_dcc931307275bf::t_378784fdcee264 141,173,185
+  s_dcc931307275bf::t_1b4e1f3c562df6 138
+  s_dcc931307275bf::t_bd4811097cdacf 187-188,410-413
+tests/handlers/spans.test.ts
+  s_dcc931307275bf::t_72e7470906ca6e 872-920,923-1011,1018-1025,1031-1040,1055-1057
+  s_dcc931307275bf::t_ca24f1afe4b9ce 170,181
+  s_dcc931307275bf::t_1f1c393eabb644 921-922
+  s_dcc931307275bf::t_181eea1d2338b8 1012-1017
+  s_dcc931307275bf::t_378784fdcee264 1026-1030,1050-1054
+  s_dcc931307275bf::t_4869ad7ea0c05f 1041-1049
+src/handlers/session.ts
+  s_dcc931307275bf::t_fa954f1971298e 39,102-105
+  s_dcc931307275bf::t_378784fdcee264 75,78-80,82-83,112-114,124-133
+  s_dcc931307275bf::t_181eea1d2338b8 23,43-48,70-73,111,116-122
+  s_dcc931307275bf::t_2b73ed0ef48de2 20-22
+  s_dcc931307275bf::t_9789c13c69ab63 24
+  s_dcc931307275bf::t_245c04b913613c 40-42
+  s_dcc931307275bf::t_f3b61f5cb38d46 74
+  s_dcc931307275bf::t_16357325507ee1 76-77
+  s_dcc931307275bf::t_3e56ed774e3ec3 81
+  s_dcc931307275bf::t_062aca76dc9c83 84-86
+  s_dcc931307275bf::t_00a887a88e70f4 106-110
+  s_dcc931307275bf::t_dfd02ba8df80bd 87-89,98,138,140
+README.md
+  s_dcc931307275bf::t_1f1c393eabb644 37
+  s_dcc931307275bf::t_bae0aa80f552bd 39,41
+e2e/opencode.e2e.test.ts
+  s_dcc931307275bf::t_fcb8f8fa6b13ab 30-34,291-306,312-341,344,351-366
+  s_dcc931307275bf::t_1f1c393eabb644 342,345-348
+  s_dcc931307275bf::t_6ee77c43945c0c 307-308
+  s_dcc931307275bf::t_a24422a72ec2dd 223-290,309,311,343,367-370
+  s_dcc931307275bf::t_656cb10f989554 310
+  s_dcc931307275bf::t_c21a183e82e4bd 349-350
+  s_dcc931307275bf::t_227880e3ff2bea 371
+src/types.ts
+  s_dcc931307275bf::t_f30aff32e320d9 70-71,79-84,148
+src/index.ts
+  s_dcc931307275bf::t_102f30b5517fc4 251-252
+  s_dcc931307275bf::t_407315db6a214f 253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "4831676a35344d5c4a050f0672abefbaca695783",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_dcc931307275bf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef79-523e-7b53-b72e-c502f771a0c4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    },
+    "s_ef2915c3a78043": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd61e-f782-73f0-b413-ffadc9522ab7",
+        "model": "unknown"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
