@@ -21,7 +21,15 @@ export type ToolReply = {
   hold?: boolean
 }
 
-export type LlmReply = TextReply | ToolReply
+export type ErrorReply = {
+  type: "error"
+  code: string
+  message: string
+  status?: number
+  hold?: boolean
+}
+
+export type LlmReply = TextReply | ToolReply | ErrorReply
 
 export type LlmHit = {
   body: Record<string, unknown>
@@ -68,6 +76,16 @@ function titleRequest(body: Record<string, unknown>) {
 }
 
 function response(reply: LlmReply) {
+  if (reply.type === "error") {
+    return Response.json({
+      error: {
+        message: reply.message,
+        type: "invalid_request_error",
+        param: null,
+        code: reply.code,
+      },
+    }, { status: reply.status ?? 400 })
+  }
   const start = chunk({ delta: { role: "assistant" } })
   if (reply.type === "text") {
     return sse([

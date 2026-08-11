@@ -135,6 +135,10 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   const messageAgent = (assistant as AssistantMessage & { agent?: string }).agent ?? assistant.mode
   const agentName = messageAgent || runAgent.agentName
   const agentType = runAgent.agentType
+  const contextOverflow = compactionHandlers.contextOverflowForMessage(sessionID, assistant.id, ctx)
+  const assistantError = assistant.error
+    ? errorSummary(assistant.error)
+    : contextOverflow?.error
   if (messageAgent && run && assistant.summary !== true) {
     run.agent = messageAgent
     run.span.setAttribute(AGENT_NAME, messageAgent)
@@ -166,7 +170,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
       [LLM_TOKEN_COUNT_PROMPT_DETAILS_CACHE_READ]: assistant.tokens.cache.read,
       [LLM_TOKEN_COUNT_PROMPT_DETAILS_CACHE_WRITE]: assistant.tokens.cache.write,
       [LLM_TOKEN_COUNT_TOTAL]: totalTokens,
-      [LLM_FINISH_REASON]: assistant.error ? "error" : (assistant.finish ?? "stop"),
+      [LLM_FINISH_REASON]: assistantError ? "error" : (assistant.finish ?? "stop"),
       [LLM_COST_TOTAL]: assistant.cost,
       ...(outputText && !telemetryOutput
         ? {
@@ -178,9 +182,10 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
         : {}),
       cost_usd: assistant.cost,
       duration_ms: duration,
+      ...(contextOverflow ? { "error.type": "ContextOverflowError" } : {}),
     })
-    if (assistant.error) {
-      msgSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorSummary(assistant.error) })
+    if (assistantError) {
+      msgSpan.setStatus({ code: SpanStatusCode.ERROR, message: assistantError })
     } else {
       msgSpan.setStatus({ code: SpanStatusCode.OK })
     }
@@ -402,6 +407,10 @@ export function startMessageSpan(
           ? {
               "opencode.compaction.id": compaction.markerMessageID,
               "opencode.llm.purpose": "compaction",
+              "opencode.compaction.overflow": compaction.overflow,
+              ...(compaction.triggerMessageID
+                ? { "opencode.compaction.trigger_message.id": compaction.triggerMessageID }
+                : {}),
             }
           : {}),
         ...(inputText

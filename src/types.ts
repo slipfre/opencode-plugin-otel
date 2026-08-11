@@ -67,11 +67,19 @@ type CompactionRecord = {
   markerMessageID: string
   ownerInteractionID?: string
   auto: boolean
+  overflow: boolean
+  triggerMessageID?: string
   spanContext: SpanContext
 }
 
 type ActiveCompactionSpan = CompactionRecord & {
   span: Span
+}
+
+type PendingContextOverflow = {
+  messageID: string
+  ownerInteractionID?: string
+  error: string
 }
 
 /** Live run span with its accumulated usage, agent metadata, and interaction state. */
@@ -137,6 +145,7 @@ export type HandlerContext = {
   activeCompactions: Map<string, ActiveCompactionSpan>
   compactionRecords: Map<string, CompactionRecord>
   recentCompactions: Map<string, CompactionRecord>
+  pendingContextOverflows: Map<string, PendingContextOverflow>
   sessionParents: Map<string, string>
   messageSpans: Map<string, Span>
   messageOutputs: Map<string, string>

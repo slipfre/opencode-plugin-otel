@@ -27,6 +27,11 @@ function expectOk(span: ExportedSpan) {
   expect(code === 1 || code === "STATUS_CODE_OK").toBe(true)
 }
 
+function expectError(span: ExportedSpan) {
+  const code = span.status["code"]
+  expect(code === 2 || code === "STATUS_CODE_ERROR").toBe(true)
+}
+
 type Fixture = Awaited<ReturnType<typeof createE2EFixture>>
 
 async function requireSpans(fixture: Fixture, result: RunResult, count: number) {
@@ -210,6 +215,155 @@ suite("OpenCode plugin E2E", () => {
       expect(interaction.attributes["interaction.total_tokens"]).toBe(90_017)
       expect(interaction.attributes["output.value"]).toBe("continued after automatic compact")
       spans.forEach(expectOk)
+    } finally {
+      await fixture.close()
+    }
+  }, 60_000)
+
+  test("reports the provider error when an automatic compaction summary overflows", async () => {
+    const summaryError = "Compaction summary exceeded the model context limit"
+    const fixture = await createE2EFixture({
+      caseID: "automatic-compaction-summary-overflow",
+      autoCompact: true,
+      replies: [
+        {
+          type: "tool",
+          name: "bash",
+          input: { command: "echo before-summary-overflow", description: "Trigger compact before summary overflow" },
+          usage: { input: 90_000, output: 2 },
+        },
+        {
+          type: "error",
+          code: "context_length_exceeded",
+          message: summaryError,
+          status: 400,
+        },
+      ],
+    })
+    try {
+      const result = await fixture.run("use a tool and compact into an overflowing summary", [
+        "--dangerously-skip-permissions",
+      ])
+      expect(result.exitCode).toBe(1)
+      expect(fixture.llm.pending()).toBe(0)
+      expect(fixture.llm.mainHits()).toHaveLength(2)
+      expect(fixture.otlp.errors).toEqual([])
+      const spans = await requireSpans(fixture, result, 6)
+
+      const run = one(spans, "e2e.run")
+      const interaction = one(spans, "e2e.interaction")
+      const tool = one(spans, "e2e.tool.bash")
+      const compaction = one(spans, "e2e.compaction")
+      const llms = spans.filter(span => span.name === "e2e.llm")
+      expect(llms).toHaveLength(2)
+
+      const summary = llms.find(span => span.attributes["opencode.llm.purpose"] === "compaction")
+      const initial = llms.find(span => span !== summary)
+      expect(summary).toBeDefined()
+      expect(initial).toBeDefined()
+
+      expect(new Set(spans.map(span => span.traceId)).size).toBe(1)
+      expect(interaction.parentSpanId).toBe(run.spanId)
+      expect(initial!.parentSpanId).toBe(interaction.spanId)
+      expect(tool.parentSpanId).toBe(interaction.spanId)
+      expect(compaction.parentSpanId).toBe(interaction.spanId)
+      expect(summary!.parentSpanId).toBe(compaction.spanId)
+
+      expect(compaction.attributes["opencode.compaction.auto"]).toBe(true)
+      expect(summary!.attributes["opencode.compaction.id"]).toBe(compaction.attributes["opencode.compaction.id"])
+      expect(summary!.attributes["opencode.llm.purpose"]).toBe("compaction")
+      expect(summary!.attributes["error.type"]).toBe("ContextOverflowError")
+      const summaryStatusMessage = String(summary!.status["message"] ?? "")
+      expect(summaryStatusMessage).not.toContain("session ended before message completed")
+      expect(summaryStatusMessage).toMatch(/ContextOverflowError|Compaction summary exceeded the model context limit/)
+
+      expectOk(initial!)
+      expectOk(tool)
+      expectError(summary!)
+      expectError(compaction)
+      expectError(interaction)
+      expectError(run)
+    } finally {
+      await fixture.close()
+    }
+  }, 60_000)
+
+  test("recovers a provider context overflow through automatic compaction", async () => {
+    const fixture = await createE2EFixture({
+      caseID: "context-overflow-compaction",
+      autoCompact: true,
+      replies: [
+        {
+          type: "error",
+          code: "context_length_exceeded",
+          message: "This model's maximum context length was exceeded",
+        },
+        { type: "text", text: "durable overflow compact summary", usage: { input: 5, output: 3 } },
+        { type: "text", text: "continued after context overflow", usage: { input: 4, output: 3 } },
+      ],
+    })
+    try {
+      const result = await fixture.run("recover after context overflow")
+      expect(result.exitCode).toBe(1)
+      expect(result.stdout).toContain("continued after context overflow")
+      expect(fixture.llm.pending()).toBe(0)
+      expect(fixture.llm.mainHits()).toHaveLength(3)
+      expect(fixture.otlp.errors).toEqual([])
+      const spans = await requireSpans(fixture, result, 6)
+
+      const run = one(spans, "e2e.run")
+      const interaction = one(spans, "e2e.interaction")
+      const compaction = one(spans, "e2e.compaction")
+      const llms = spans.filter(span => span.name === "e2e.llm")
+      expect(llms).toHaveLength(3)
+
+      const summary = llms.find(span => span.attributes["opencode.llm.purpose"] === "compaction")
+      const failed = llms.find(span => {
+        const code = span.status["code"]
+        return code === 2 || code === "STATUS_CODE_ERROR"
+      })
+      const continuation = llms.find(span => span.attributes["llm.token_count.prompt"] === 4)
+      expect(summary).toBeDefined()
+      expect(failed).toBeDefined()
+      expect(continuation).toBeDefined()
+      expect(new Set([summary, failed, continuation]).size).toBe(3)
+
+      expect(new Set(spans.map(span => span.traceId)).size).toBe(1)
+      expect(interaction.parentSpanId).toBe(run.spanId)
+      expect(failed!.parentSpanId).toBe(interaction.spanId)
+      expect(compaction.parentSpanId).toBe(interaction.spanId)
+      expect(summary!.parentSpanId).toBe(compaction.spanId)
+      expect(continuation!.parentSpanId).toBe(interaction.spanId)
+      expect(continuation!.parentSpanId).not.toBe(compaction.spanId)
+
+      expect(compaction.attributes["opencode.compaction.auto"]).toBe(true)
+      expect(compaction.attributes["opencode.compaction.overflow"]).toBe(true)
+      expect(typeof compaction.attributes["opencode.compaction.trigger_message.id"]).toBe("string")
+      expect(failed!.attributes["error.type"]).toBe("ContextOverflowError")
+      expect(summary!.attributes["opencode.compaction.id"]).toBe(compaction.attributes["opencode.compaction.id"])
+      expect(summary!.attributes["opencode.llm.purpose"]).toBe("compaction")
+      expect(summary!.attributes["opencode.compaction.overflow"]).toBe(true)
+      expect(summary!.attributes["opencode.compaction.trigger_message.id"]).toBe(
+        compaction.attributes["opencode.compaction.trigger_message.id"],
+      )
+      expect(continuation!.attributes["opencode.llm.purpose"]).toBeUndefined()
+
+      expect(BigInt(failed!.endTimeUnixNano) <= BigInt(compaction.startTimeUnixNano)).toBe(true)
+      expect(BigInt(compaction.startTimeUnixNano) <= BigInt(summary!.startTimeUnixNano)).toBe(true)
+      expect(BigInt(summary!.endTimeUnixNano) <= BigInt(compaction.endTimeUnixNano)).toBe(true)
+      expect(BigInt(compaction.endTimeUnixNano) <= BigInt(continuation!.startTimeUnixNano)).toBe(true)
+      expect(run.attributes["run.total_messages"]).toBe(3)
+      expect(run.attributes["run.total_tokens"]).toBe(15)
+      expect(run.attributes["output.value"]).toBe("continued after context overflow")
+      expect(interaction.attributes["interaction.total_messages"]).toBe(3)
+      expect(interaction.attributes["interaction.total_tokens"]).toBe(15)
+      expect(interaction.attributes["output.value"]).toBe("continued after context overflow")
+      expectError(failed!)
+      expectOk(summary!)
+      expectOk(continuation!)
+      expectOk(compaction)
+      expectOk(interaction)
+      expectOk(run)
     } finally {
       await fixture.close()
     }

@@ -248,8 +248,9 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           await flushTelemetry("session.idle")
           break
         case "session.error":
-          handleSessionError(event as EventSessionError, ctx)
-          await flushTelemetry("session.error")
+          if (handleSessionError(event as EventSessionError, ctx) === "terminal") {
+            await flushTelemetry("session.error")
+          }
           break
         case "message.updated": {
           const msgEvt = event as EventMessageUpdated

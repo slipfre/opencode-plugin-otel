@@ -167,6 +167,7 @@ function makeCompactionPartUpdated(
   messageID: string,
   auto: boolean,
   sessionID = "ses_1",
+  overflow?: boolean,
 ): EventMessagePartUpdated {
   return {
     type: "message.part.updated",
@@ -177,6 +178,7 @@ function makeCompactionPartUpdated(
         sessionID,
         messageID,
         auto,
+        ...(overflow !== undefined ? { overflow } : {}),
       },
     },
   } as unknown as EventMessagePartUpdated
@@ -867,6 +869,192 @@ describe("run and interaction spans", () => {
 })
 
 describe("compaction spans", () => {
+  test("recovers a context overflow inside the originating interaction", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    const run = tracer.spans[0]!
+    const interaction = tracer.spans[1]!
+
+    startMessageSpan("ses_1", "msg_overflow", "user_1", "claude", "anthropic", 1100, ctx, "build")
+    const overflowed = tracer.spans.at(-1)!
+    handleSessionError(makeSessionError("ses_1", { name: "ContextOverflowError" }), ctx)
+
+    expect(run.ended).toBe(false)
+    expect(interaction.ended).toBe(false)
+    expect(overflowed.ended).toBe(false)
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_overflow",
+      parentID: "user_1",
+      mode: "build",
+      time: { created: 1100, completed: 1200 },
+    }), ctx)
+
+    expect(overflowed.ended).toBe(true)
+    expect(overflowed.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+    expect(overflowed.attributes["llm.finish_reason"]).toBe("error")
+    expect(run.ended).toBe(false)
+    expect(interaction.ended).toBe(false)
+
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact", true, "ses_1", true), ctx)
+    const compaction = tracer.spans.at(-1)!
+    expect(compaction.name).toBe("opencode.compaction")
+    expect(compaction.parentSpan).toBe(interaction)
+    expect(compaction.attributes["opencode.compaction.overflow"]).toBe(true)
+    expect(compaction.attributes["opencode.compaction.trigger_message.id"]).toBe("msg_overflow")
+
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "compact-model",
+      "anthropic",
+      1300,
+      ctx,
+      "compaction",
+    )
+    const summary = tracer.spans.at(-1)!
+    expect(summary.parentSpan).toBe(compaction)
+    expect(summary.attributes["opencode.compaction.overflow"]).toBe(true)
+    expect(summary.attributes["opencode.compaction.trigger_message.id"]).toBe("msg_overflow")
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      modelID: "compact-model",
+      mode: "compaction",
+      summary: true,
+      time: { created: 1300, completed: 1400 },
+    }), ctx)
+    handleMessagePartUpdated(makeSyntheticTextPartUpdated(
+      "Continue if you have next steps.",
+      "ses_1",
+      "user_continue",
+    ), ctx)
+    handleSessionCompacted(makeSessionCompacted("ses_1"), ctx)
+
+    startMessageSpan("ses_1", "msg_after", "user_continue", "claude", "anthropic", 1500, ctx, "build")
+    const continuation = tracer.spans.at(-1)!
+    expect(continuation.parentSpan).toBe(interaction)
+    handleMessagePartUpdated(makeTextPartUpdated("final answer", "ses_1", "msg_after"), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_after",
+      parentID: "user_continue",
+      mode: "build",
+      time: { created: 1500, completed: 1600 },
+    }), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(compaction.status.code).toBe(SpanStatusCode.OK)
+    expect(continuation.status.code).toBe(SpanStatusCode.OK)
+    expect(interaction.status.code).toBe(SpanStatusCode.OK)
+    expect(run.status.code).toBe(SpanStatusCode.OK)
+    expect(new Set(tracer.spans.map(span => span.spanContext().traceId))).toEqual(
+      new Set([run.spanContext().traceId]),
+    )
+  })
+
+  test("ends the run and interaction with error when overflow recovery never starts", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    const run = tracer.spans[0]!
+    const interaction = tracer.spans[1]!
+
+    startMessageSpan("ses_1", "msg_overflow", "user_1", "claude", "anthropic", 1100, ctx, "build")
+    const overflowed = tracer.spans.at(-1)!
+    handleSessionError(makeSessionError("ses_1", { name: "ContextOverflowError" }), ctx)
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_overflow",
+      parentID: "user_1",
+      mode: "build",
+      time: { created: 1100, completed: 1200 },
+    }), ctx)
+
+    expect(run.ended).toBe(false)
+    expect(interaction.ended).toBe(false)
+    expect(overflowed.status.code).toBe(SpanStatusCode.ERROR)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+
+    expect(tracer.spans.filter(span => span.name === "opencode.compaction")).toHaveLength(0)
+    expect(interaction.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+    expect(run.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+  })
+
+  test("treats a context overflow during an active compaction as terminal", () => {
+    const { ctx, tracer } = makeCtx()
+    handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)
+    const run = tracer.spans[0]!
+    const interaction = tracer.spans[1]!
+    handleMessagePartUpdated(makeCompactionPartUpdated("user_compact", true), ctx)
+    const compaction = tracer.spans.at(-1)!
+
+    startMessageSpan(
+      "ses_1",
+      "msg_summary",
+      "user_compact",
+      "compact-model",
+      "anthropic",
+      1100,
+      ctx,
+      "compaction",
+    )
+    const summary = tracer.spans.at(-1)!
+    handleSessionError(makeSessionError("ses_1", { name: "ContextOverflowError" }), ctx)
+
+    expect(summary.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+    expect(summary.attributes["llm.finish_reason"]).toBe("error")
+    expect(summary.attributes["error.type"]).toBe("ContextOverflowError")
+    expect(compaction.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+    expect(run.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+    expect(interaction.ended).toBe(true)
+    expect(interaction.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      modelID: "compact-model",
+      mode: "compaction",
+      summary: true,
+      time: { created: 1100, completed: 1200 },
+    }), ctx)
+
+    handleMessageUpdated(makeAssistantMessageUpdated({
+      id: "msg_summary",
+      parentID: "user_compact",
+      modelID: "compact-model",
+      mode: "compaction",
+      summary: true,
+      error: { name: "ContextOverflowError" },
+      time: { created: 1100, completed: 1200 },
+    }), ctx)
+    expect(interaction.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: "ContextOverflowError",
+    })
+    expect(ctx.pendingAssistantInteractions.size).toBe(0)
+    expect(tracer.spans.every(span => span.ended)).toBe(true)
+  })
+
   test("keeps automatic compaction and continuation in the originating interaction", () => {
     const { ctx, tracer } = makeCtx()
     handleInteractionStarted("user_1", "ses_1", "build", "prompt", "anthropic/claude", 1000, ctx)

@@ -17,7 +17,11 @@ export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext
   if (parentID) setBoundedMap(ctx.sessionParents, sessionID, parentID)
 }
 
-function sweepSession(sessionID: string, ctx: HandlerContext) {
+function sweepSession(
+  sessionID: string,
+  ctx: HandlerContext,
+  messageError?: { messageID: string; error: string; errorType?: string },
+) {
   for (const [key, span] of ctx.pendingToolSpans) {
     if (span.sessionID === sessionID) {
       span.span.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before tool completed" })
@@ -32,7 +36,16 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
   const msgPrefix = `${sessionID}:`
   for (const [key, span] of ctx.messageSpans) {
     if (key.startsWith(msgPrefix)) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: "session ended before message completed" })
+      const error = messageError && key === `${sessionID}:${messageError.messageID}`
+        ? messageError.error
+        : "session ended before message completed"
+      span.setStatus({ code: SpanStatusCode.ERROR, message: error })
+      if (messageError && key === `${sessionID}:${messageError.messageID}`) {
+        span.setAttributes({
+          "llm.finish_reason": "error",
+          ...(messageError.errorType ? { "error.type": messageError.errorType } : {}),
+        })
+      }
       span.end()
       ctx.messageSpans.delete(key)
     }
@@ -54,6 +67,26 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
 /** Records totals, ends the active run, and clears pending state. */
 export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   const sessionID = e.properties.sessionID
+  const overflow = compactionHandlers.pendingContextOverflow(sessionID, ctx)
+  if (overflow) {
+    compactionHandlers.fail(sessionID, overflow.error, ctx)
+    sweepSession(sessionID, ctx, { ...overflow, errorType: "ContextOverflowError" })
+    if (overflow.ownerInteractionID) {
+      interactionHandlers.end(
+        overflow.ownerInteractionID,
+        sessionID,
+        SpanStatusCode.ERROR,
+        ctx,
+        undefined,
+        overflow.error,
+      )
+    }
+    interactionHandlers.endSession(sessionID, SpanStatusCode.ERROR, ctx, overflow.error)
+    endRunSpan(sessionID, SpanStatusCode.ERROR, ctx, overflow.error)
+    compactionHandlers.clearRecent(sessionID, ctx)
+    compactionHandlers.clearContextOverflow(sessionID, ctx)
+    return
+  }
   compactionHandlers.fail(sessionID, "session ended before compaction completed", ctx)
   sweepSession(sessionID, ctx)
   interactionHandlers.endSession(sessionID, SpanStatusCode.OK, ctx)
@@ -62,18 +95,49 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
 }
 
 /** Ends the active run with error status and clears pending state. */
-export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
+export function handleSessionError(e: EventSessionError, ctx: HandlerContext): "recoverable" | "terminal" {
   const rawID = e.properties.sessionID
   const sessionID = rawID ?? "unknown"
   const error = errorSummary(e.properties.error)
+  const errorName = (e.properties.error as { name?: string } | undefined)?.name
+  if (
+    rawID
+    && errorName === "ContextOverflowError"
+    && compactionHandlers.deferContextOverflow(rawID, error, ctx)
+  ) {
+    ctx.log("warn", "otel: context overflow recovery pending", { sessionID, error })
+    return "recoverable"
+  }
+  const activeMessage = rawID ? ctx.activeMessageSpans.get(rawID) : undefined
+  const compactionOwnerInteractionID = rawID
+    ? ctx.activeCompactions.get(rawID)?.ownerInteractionID
+    : undefined
   compactionHandlers.fail(sessionID, error, ctx)
-  sweepSession(sessionID, ctx)
+  sweepSession(
+    sessionID,
+    ctx,
+    activeMessage
+      ? { messageID: activeMessage.messageID, error, ...(errorName ? { errorType: errorName } : {}) }
+      : undefined,
+  )
   if (rawID) {
+    if (compactionOwnerInteractionID) {
+      interactionHandlers.end(
+        compactionOwnerInteractionID,
+        rawID,
+        SpanStatusCode.ERROR,
+        ctx,
+        undefined,
+        error,
+      )
+    }
     interactionHandlers.endSession(rawID, SpanStatusCode.ERROR, ctx, error)
     endRunSpan(rawID, SpanStatusCode.ERROR, ctx, error)
   }
   compactionHandlers.clearRecent(sessionID, ctx)
+  compactionHandlers.clearContextOverflow(sessionID, ctx)
   ctx.log("error", "otel: session.error", { sessionID, error })
+  return "terminal"
 }
 
 function handleSessionCompacted(e: EventSessionCompacted, ctx: HandlerContext) {

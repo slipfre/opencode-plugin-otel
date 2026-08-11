@@ -17,15 +17,24 @@ type CompactionContinuePart = TextPart & {
   metadata: Record<string, unknown> & { compaction_continue: true }
 }
 
+type RuntimeCompactionPart = CompactionPart & {
+  overflow?: boolean
+}
+
 function createCompactionState(): Pick<
   HandlerContext,
-  "userMessages" | "activeCompactions" | "compactionRecords" | "recentCompactions"
+  | "userMessages"
+  | "activeCompactions"
+  | "compactionRecords"
+  | "recentCompactions"
+  | "pendingContextOverflows"
 > {
   return {
     userMessages: new Map(),
     activeCompactions: new Map(),
     compactionRecords: new Map(),
     recentCompactions: new Map(),
+    pendingContextOverflows: new Map(),
   }
 }
 
@@ -64,7 +73,34 @@ const compactionHandlers = {
     })
   },
 
-  start(part: CompactionPart, ctx: HandlerContext) {
+  deferContextOverflow(sessionID: string, error: string, ctx: HandlerContext) {
+    if (ctx.activeCompactions.has(sessionID)) return false
+    const activeMessage = ctx.activeMessageSpans.get(sessionID)
+    if (!activeMessage) return false
+    const ownerInteractionID = interactionHandlers.resolveAssistant(activeMessage.messageID, undefined, ctx)
+      ?? interactionHandlers.latest(sessionID, ctx)
+    setBoundedMap(ctx.pendingContextOverflows, sessionID, {
+      messageID: activeMessage.messageID,
+      ownerInteractionID,
+      error,
+    })
+    return true
+  },
+
+  pendingContextOverflow(sessionID: string, ctx: HandlerContext) {
+    return ctx.pendingContextOverflows.get(sessionID)
+  },
+
+  contextOverflowForMessage(sessionID: string, messageID: string, ctx: HandlerContext) {
+    const pending = ctx.pendingContextOverflows.get(sessionID)
+    return pending?.messageID === messageID ? pending : undefined
+  },
+
+  clearContextOverflow(sessionID: string, ctx: HandlerContext) {
+    ctx.pendingContextOverflows.delete(sessionID)
+  },
+
+  start(part: RuntimeCompactionPart, ctx: HandlerContext) {
     if (ctx.compactionRecords.has(part.messageID)) return
     const current = ctx.activeCompactions.get(part.sessionID)
     if (current) {
@@ -77,8 +113,12 @@ const compactionHandlers = {
     }
 
     const user = ctx.userMessages.get(part.messageID)
+    const pendingOverflow = ctx.pendingContextOverflows.get(part.sessionID)
+    const overflow = part.overflow === true
+      || (part.overflow === undefined && part.auto && pendingOverflow !== undefined)
     const ownerInteractionID = part.auto
-      ? interactionHandlers.latest(part.sessionID, ctx)
+      ? (overflow ? pendingOverflow?.ownerInteractionID : undefined)
+        ?? interactionHandlers.latest(part.sessionID, ctx)
       : undefined
     if (ownerInteractionID) {
       interactionHandlers.materialize(ownerInteractionID, part.sessionID, ctx)
@@ -107,6 +147,10 @@ const compactionHandlers = {
           [SESSION_ID]: part.sessionID,
           "opencode.compaction.id": part.messageID,
           "opencode.compaction.auto": part.auto,
+          "opencode.compaction.overflow": overflow,
+          ...(overflow && pendingOverflow
+            ? { "opencode.compaction.trigger_message.id": pendingOverflow.messageID }
+            : {}),
           ...(ownerInteractionID ? { "opencode.interaction.id": ownerInteractionID } : {}),
           ...ctx.commonAttrs,
         },
@@ -118,11 +162,14 @@ const compactionHandlers = {
       markerMessageID: part.messageID,
       ownerInteractionID,
       auto: part.auto,
+      overflow,
+      ...(overflow && pendingOverflow ? { triggerMessageID: pendingOverflow.messageID } : {}),
       spanContext: span.spanContext(),
     }
     setBoundedMap(ctx.compactionRecords, part.messageID, record)
     ctx.activeCompactions.set(part.sessionID, { ...record, span })
     ctx.recentCompactions.delete(part.sessionID)
+    if (overflow) ctx.pendingContextOverflows.delete(part.sessionID)
   },
 
   handlePart(part: Part, ctx: HandlerContext) {
@@ -150,6 +197,8 @@ const compactionHandlers = {
       return {
         markerMessageID,
         ownerInteractionID: active.ownerInteractionID,
+        overflow: active.overflow,
+        triggerMessageID: active.triggerMessageID,
         parentContext: trace.setSpan(ctx.rootContext(), active.span),
       }
     }
@@ -158,6 +207,8 @@ const compactionHandlers = {
     return {
       markerMessageID,
       ownerInteractionID: record.ownerInteractionID,
+      overflow: record.overflow,
+      triggerMessageID: record.triggerMessageID,
       parentContext: trace.setSpanContext(ctx.rootContext(), record.spanContext),
     }
   },
@@ -171,6 +222,7 @@ const compactionHandlers = {
 
   complete(sessionID: string, ctx: HandlerContext) {
     endActiveCompaction(sessionID, SpanStatusCode.OK, ctx)
+    ctx.pendingContextOverflows.delete(sessionID)
   },
 
   fail(sessionID: string, error: string, ctx: HandlerContext) {
