@@ -1,0 +1,24 @@
+e2e/harness.ts
+  s_8b99178f905606::t_1f04589f81f9a6 128,130,135-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "cf9ecf666ab59017bd0dc0c3cbbf6151a56b05d2",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_8b99178f905606": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff083-1988-7d11-80cb-1fb2f9a2b5e5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
