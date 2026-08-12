@@ -125,12 +125,17 @@ async function waitFor(description: string, timeoutMs: number, ready: () => bool
 export async function createE2EFixture(options: FixtureOptions) {
   if (!e2eAvailable) throw new Error(`OpenCode entry not found: ${opencodeEntry}`)
   const home = await mkdtemp(path.join(tempRoot, "opencode-otel-e2e-"))
+  const configDir = path.join(home, ".config/opencode")
   await Promise.all([
-    mkdir(path.join(home, ".config"), { recursive: true }),
+    mkdir(path.join(configDir, "node_modules"), { recursive: true }),
     mkdir(path.join(home, ".local/share"), { recursive: true }),
     mkdir(path.join(home, ".local/state"), { recursive: true }),
     mkdir(path.join(home, ".cache"), { recursive: true }),
   ])
+  await Bun.write(
+    path.join(configDir, "package-lock.json"),
+    JSON.stringify({ packages: { "": { dependencies: { "@opencode-ai/plugin": "0.0.0" } } } }),
+  )
   const llm = startFakeLlm(options.replies)
   const otlp = startOtlpReceiver()
   const pluginEntry = path.resolve(import.meta.dir, "../src/index.ts")
