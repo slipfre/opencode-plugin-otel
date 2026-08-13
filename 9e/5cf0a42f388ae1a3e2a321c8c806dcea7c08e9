@@ -1,0 +1,64 @@
+src/index.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 12,28,101,125,243,290-295
+tests/helpers.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 133
+src/handlers/permission.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 1-14,16-22,24-121,126-129,139-149
+  s_54c9fe85ec0a10::t_a4c2508523bf6f 15,23
+  s_54c9fe85ec0a10::t_2f2e9ac370b062 130-138
+  s_54c9fe85ec0a10::t_d33894c49b779e 122
+  s_54c9fe85ec0a10::t_7f34a6ecf5ca4c 123-124
+  s_54c9fe85ec0a10::t_bbea9b582b126c 125
+tests/handlers/permission.test.ts
+  s_54c9fe85ec0a10::t_3afa73b52ddfe1 1-37,83-170,172-179,197-264,266-268,288-309
+  s_54c9fe85ec0a10::t_ff2da52adfed90 38-60,269-287
+  s_54c9fe85ec0a10::t_a4c2508523bf6f 265
+  s_54c9fe85ec0a10::t_7f34a6ecf5ca4c 61-81,180-183,194
+  s_54c9fe85ec0a10::t_d33894c49b779e 82,171,184-193,196
+  s_54c9fe85ec0a10::t_ba547aee0e43e7 195
+README.md
+  s_54c9fe85ec0a10::t_6bb3fc50e68a54 34,42
+src/handlers/message.ts
+  s_54c9fe85ec0a10::t_2f2e9ac370b062 41,303-308
+  s_54c9fe85ec0a10::t_7f34a6ecf5ca4c 350
+src/handlers/session.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 13
+  s_54c9fe85ec0a10::t_a4c2508523bf6f 26
+src/types.ts
+  s_54c9fe85ec0a10::t_4b7ac51cf482e5 34-40,131
+  s_54c9fe85ec0a10::t_7f34a6ecf5ca4c 31
+e2e/harness.ts
+  s_8b99178f905606::t_1f04589f81f9a6 128,130,135-138
+tests/handlers/spans.test.ts
+  s_54c9fe85ec0a10::t_ac52144a15a7b9 1378,1382
+  s_54c9fe85ec0a10::t_d33894c49b779e 1383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9e5cf0a42f388ae1a3e2a321c8c806dcea7c08e9",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_54c9fe85ec0a10": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff003-ed77-75f2-b425-3618f6ee531e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    },
+    "s_8b99178f905606": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff083-1988-7d11-80cb-1fb2f9a2b5e5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
