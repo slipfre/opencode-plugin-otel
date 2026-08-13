@@ -4,6 +4,7 @@ import {
   AGENT_NAME,
   INPUT_MIME_TYPE,
   INPUT_VALUE,
+  LLM_COST_TOTAL,
   LLM_MODEL_NAME,
   LLM_PROVIDER,
   LLM_SYSTEM,
@@ -23,6 +24,7 @@ import {
   USER_ID,
 } from "@arizeai/openinference-semantic-conventions"
 import type { Span } from "@opentelemetry/api"
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import { MAX_PENDING } from "../../src/types.ts"
 import {
   handleSessionCreated,
@@ -1430,6 +1432,41 @@ describe("message (LLM) spans", () => {
       modelID: "claude-3-5-sonnet",
       providerID: "anthropic",
     })
+  })
+
+  test("retains core metrics after the span attribute limit is reached", async () => {
+    const exporter = new InMemorySpanExporter()
+    const provider = new BasicTracerProvider({
+      spanLimits: { attributeCountLimit: 24 },
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    })
+    const { ctx } = makeCtx()
+    ctx.tracer = provider.getTracer("test")
+
+    try {
+      startMessageSpan("ses_1", "msg_1", "user_1", "claude", "anthropic", 1000, ctx)
+      const span = ctx.messageSpans.get("ses_1:msg_1")!
+      for (let index = 0; index < 100; index++) span.setAttribute(`overflow.${index}`, index)
+
+      handleMessageUpdated(makeAssistantMessageUpdated({
+        tokens: { input: 200, output: 80, reasoning: 10, cache: { read: 30, write: 5 } },
+        cost: 0.04,
+        finish: "tool-calls",
+        time: { created: 1000, completed: 2000 },
+      }), ctx)
+
+      const finished = exporter.getFinishedSpans()[0]!
+      expect(finished.droppedAttributesCount).toBeGreaterThan(0)
+      expect(finished.attributes[LLM_TOKEN_COUNT_PROMPT]).toBe(235)
+      expect(finished.attributes[LLM_TOKEN_COUNT_COMPLETION]).toBe(90)
+      expect(finished.attributes[LLM_TOKEN_COUNT_TOTAL]).toBe(325)
+      expect(finished.attributes[LLM_COST_TOTAL]).toBe(0.04)
+      expect(finished.attributes.cost_usd).toBe(0.04)
+      expect(finished.attributes["llm.finish_reason"]).toBe("tool-calls")
+      expect(finished.attributes.duration_ms).toBe(1000)
+    } finally {
+      await provider.shutdown()
+    }
   })
 
   test("startMessageSpan sets OpenInference LLM attributes", () => {
