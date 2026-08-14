@@ -6,14 +6,7 @@
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "exclude": [
-    "eslint.config.mjs",
-    "dist",
-    "scripts",
-    "tests"
-  ],
+  "exclude": ["dist", "scripts", "tests"],
   "extends": "./tsconfig.json",
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }

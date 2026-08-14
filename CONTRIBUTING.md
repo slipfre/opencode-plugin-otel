@@ -28,12 +28,15 @@ opencode loads TypeScript natively via Bun, so there is no build step required d
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `bun run lint` | Run ESLint, including JSDoc formatting checks |
+| Command                        | Description                                                  |
+| ------------------------------ | ------------------------------------------------------------ |
+| `bun run format`               | Format supported files with oxfmt                            |
+| `bun run format:check`         | Check formatting without changing files                      |
+| `bun run lint`                 | Run oxlint, including JSDoc checks                           |
+| `bun run lint:fix`             | Automatically fix supported lint violations                  |
 | `bun run check:jsdoc-coverage` | Enforce minimum JSDoc coverage for exported API declarations |
-| `bun run typecheck` | Type-check all sources without emitting |
-| `bun test` | Run the test suite |
+| `bun run typecheck`            | Type-check all sources without emitting                      |
+| `bun test`                     | Run the test suite                                           |
 
 ## Project structure
 
@@ -76,17 +79,17 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 
 ### Types
 
-| Type | When to use |
-|------|-------------|
-| `feat` | A new feature (triggers a minor version bump) |
-| `fix` | A bug fix (triggers a patch version bump) |
-| `perf` | A performance improvement |
+| Type       | When to use                                     |
+| ---------- | ----------------------------------------------- |
+| `feat`     | A new feature (triggers a minor version bump)   |
+| `fix`      | A bug fix (triggers a patch version bump)       |
+| `perf`     | A performance improvement                       |
 | `refactor` | Code change that is neither a fix nor a feature |
-| `test` | Adding or updating tests |
-| `docs` | Documentation only changes |
-| `ci` | CI/CD configuration changes |
-| `chore` | Maintenance tasks (dependency updates, etc.) |
-| `build` | Changes to the build system |
+| `test`     | Adding or updating tests                        |
+| `docs`     | Documentation only changes                      |
+| `ci`       | CI/CD configuration changes                     |
+| `chore`    | Maintenance tasks (dependency updates, etc.)    |
+| `build`    | Changes to the build system                     |
 
 ### Breaking changes
 
@@ -110,7 +113,7 @@ chore(deps): bump @opentelemetry/api to 1.10.0
 ## Submitting changes
 
 1. Fork the repo and create a branch from `main`: `git checkout -b feat/my-feature`
-2. Make your changes and ensure `bun run lint`, `bun run check:jsdoc-coverage`, `bun run typecheck`, and `bun test` pass
+2. Make your changes and ensure `bun run format:check`, `bun run lint`, `bun run check:jsdoc-coverage`, `bun run typecheck`, and `bun test` pass
 3. Commit using Conventional Commits format
 4. Open a pull request with a clear, human-readable title and link any related issues in the description
 

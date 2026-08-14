@@ -65,26 +65,26 @@ For local development, point directly at the TypeScript entrypoint:
 
 The plugin reads settings from `OPENCODE_*` environment variables and inline plugin options. An option takes precedence over the matching environment variable, which takes precedence over the built-in default.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENCODE_ENABLE_TELEMETRY` | *(unset)* | Set to any non-empty value to enable trace export |
-| `OPENCODE_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP collector endpoint with a URL scheme. HTTP transports append `/v1/traces` |
-| `OPENCODE_OTLP_PROTOCOL` | `grpc` | `grpc`, `http/protobuf`, or `http/json` |
-| `OPENCODE_TRACE_PREFIX` | `opencode.` | Prefix applied to emitted span names |
-| `OPENCODE_OTLP_HEADERS` | *(unset)* | Comma-separated `key=value` headers added to exports |
-| `OPENCODE_OTLP_HEADERS_HELPER` | *(unset)* | Executable that returns dynamic OTLP headers as JSON |
-| `OPENCODE_RESOURCE_ATTRIBUTES` | *(unset)* | Comma-separated attributes merged into the OTel resource |
-| `OPENCODE_SPAN_ATTRIBUTES` | *(unset)* | Comma-separated attributes attached to every span |
-| `OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT` | `4096` | Maximum attributes retained per span |
-| `OPENCODE_TRACEPARENT` | *(unset)* | W3C `traceparent` used as the remote parent for all spans |
-| `OPENCODE_TRACESTATE` | *(unset)* | W3C `tracestate` paired with `OPENCODE_TRACEPARENT` |
-| `OPENCODE_TRACE_PROPAGATION_PROVIDERS` | *(unset)* | Provider IDs that receive W3C trace context on LLM requests; `*` enables all providers |
-| `OPENCODE_USER_ID_ENABLED` | `true` | Enables resolving `user.id` from the first configured provider API key |
-| `OPENCODE_USER_ID_ENDPOINT` | `queryUserByToken` | Endpoint used to resolve `user.id` |
-| `OPENCODE_USER_ID-X-Blackbox-Auth` | *(unset)* | Value sent in the `X-Blackbox-Auth` header for user ID lookup |
-| `OPENCODE_USER_ID_TIMEOUT` | `3000` | User ID request timeout in milliseconds |
-| `OPENCODE_USER_ID_RETRY_COUNT` | `2` | Retries after the initial user ID request fails, from `0` to `10` |
-| `OPENCODE_USER_ID_COOLDOWN` | `300000` | Cooldown after all user ID attempts fail; `0` disables the cooldown |
+| Variable                               | Default                 | Description                                                                            |
+| -------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------- |
+| `OPENCODE_ENABLE_TELEMETRY`            | _(unset)_               | Set to any non-empty value to enable trace export                                      |
+| `OPENCODE_OTLP_ENDPOINT`               | `http://localhost:4317` | OTLP collector endpoint with a URL scheme. HTTP transports append `/v1/traces`         |
+| `OPENCODE_OTLP_PROTOCOL`               | `grpc`                  | `grpc`, `http/protobuf`, or `http/json`                                                |
+| `OPENCODE_TRACE_PREFIX`                | `opencode.`             | Prefix applied to emitted span names                                                   |
+| `OPENCODE_OTLP_HEADERS`                | _(unset)_               | Comma-separated `key=value` headers added to exports                                   |
+| `OPENCODE_OTLP_HEADERS_HELPER`         | _(unset)_               | Executable that returns dynamic OTLP headers as JSON                                   |
+| `OPENCODE_RESOURCE_ATTRIBUTES`         | _(unset)_               | Comma-separated attributes merged into the OTel resource                               |
+| `OPENCODE_SPAN_ATTRIBUTES`             | _(unset)_               | Comma-separated attributes attached to every span                                      |
+| `OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT`  | `4096`                  | Maximum attributes retained per span                                                   |
+| `OPENCODE_TRACEPARENT`                 | _(unset)_               | W3C `traceparent` used as the remote parent for all spans                              |
+| `OPENCODE_TRACESTATE`                  | _(unset)_               | W3C `tracestate` paired with `OPENCODE_TRACEPARENT`                                    |
+| `OPENCODE_TRACE_PROPAGATION_PROVIDERS` | _(unset)_               | Provider IDs that receive W3C trace context on LLM requests; `*` enables all providers |
+| `OPENCODE_USER_ID_ENABLED`             | `true`                  | Enables resolving `user.id` from the first configured provider API key                 |
+| `OPENCODE_USER_ID_ENDPOINT`            | `queryUserByToken`      | Endpoint used to resolve `user.id`                                                     |
+| `OPENCODE_USER_ID-X-Blackbox-Auth`     | _(unset)_               | Value sent in the `X-Blackbox-Auth` header for user ID lookup                          |
+| `OPENCODE_USER_ID_TIMEOUT`             | `3000`                  | User ID request timeout in milliseconds                                                |
+| `OPENCODE_USER_ID_RETRY_COUNT`         | `2`                     | Retries after the initial user ID request fails, from `0` to `10`                      |
+| `OPENCODE_USER_ID_COOLDOWN`            | `300000`                | Cooldown after all user ID attempts fail; `0` disables the cooldown                    |
 
 ### Plugin options
 
@@ -94,39 +94,42 @@ Every setting can also be passed through opencode's plugin tuple form:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    ["@devtheops/opencode-plugin-otel", {
-      "enabled": true,
-      "endpoint": "http://localhost:4317",
-      "protocol": "grpc",
-      "tracePrefix": "opencode.",
-      "resourceAttributes": "service.version=1.2.3,deployment.environment=production"
-    }]
+    [
+      "@devtheops/opencode-plugin-otel",
+      {
+        "enabled": true,
+        "endpoint": "http://localhost:4317",
+        "protocol": "grpc",
+        "tracePrefix": "opencode.",
+        "resourceAttributes": "service.version=1.2.3,deployment.environment=production"
+      }
+    ]
   ]
 }
 ```
 
 Option keys mirror the resolved config:
 
-| Option | Environment variable |
-|--------|----------------------|
-| `enabled` | `OPENCODE_ENABLE_TELEMETRY` |
-| `endpoint` | `OPENCODE_OTLP_ENDPOINT` |
-| `protocol` | `OPENCODE_OTLP_PROTOCOL` |
-| `tracePrefix` | `OPENCODE_TRACE_PREFIX` |
-| `otlpHeaders` | `OPENCODE_OTLP_HEADERS` |
-| `otlpHeadersHelper` | `OPENCODE_OTLP_HEADERS_HELPER` |
-| `resourceAttributes` | `OPENCODE_RESOURCE_ATTRIBUTES` |
-| `spanAttributes` | `OPENCODE_SPAN_ATTRIBUTES` |
-| `spanAttributeCountLimit` | `OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT` |
-| `traceparent` | `OPENCODE_TRACEPARENT` |
-| `tracestate` | `OPENCODE_TRACESTATE` |
+| Option                      | Environment variable                   |
+| --------------------------- | -------------------------------------- |
+| `enabled`                   | `OPENCODE_ENABLE_TELEMETRY`            |
+| `endpoint`                  | `OPENCODE_OTLP_ENDPOINT`               |
+| `protocol`                  | `OPENCODE_OTLP_PROTOCOL`               |
+| `tracePrefix`               | `OPENCODE_TRACE_PREFIX`                |
+| `otlpHeaders`               | `OPENCODE_OTLP_HEADERS`                |
+| `otlpHeadersHelper`         | `OPENCODE_OTLP_HEADERS_HELPER`         |
+| `resourceAttributes`        | `OPENCODE_RESOURCE_ATTRIBUTES`         |
+| `spanAttributes`            | `OPENCODE_SPAN_ATTRIBUTES`             |
+| `spanAttributeCountLimit`   | `OPENCODE_SPAN_ATTRIBUTE_COUNT_LIMIT`  |
+| `traceparent`               | `OPENCODE_TRACEPARENT`                 |
+| `tracestate`                | `OPENCODE_TRACESTATE`                  |
 | `tracePropagationProviders` | `OPENCODE_TRACE_PROPAGATION_PROVIDERS` |
-| `userIDEnabled` | `OPENCODE_USER_ID_ENABLED` |
-| `userIDEndpoint` | `OPENCODE_USER_ID_ENDPOINT` |
-| `userIDAuthHeader` | `OPENCODE_USER_ID-X-Blackbox-Auth` |
-| `userIDTimeout` | `OPENCODE_USER_ID_TIMEOUT` |
-| `userIDRetryCount` | `OPENCODE_USER_ID_RETRY_COUNT` |
-| `userIDCooldown` | `OPENCODE_USER_ID_COOLDOWN` |
+| `userIDEnabled`             | `OPENCODE_USER_ID_ENABLED`             |
+| `userIDEndpoint`            | `OPENCODE_USER_ID_ENDPOINT`            |
+| `userIDAuthHeader`          | `OPENCODE_USER_ID-X-Blackbox-Auth`     |
+| `userIDTimeout`             | `OPENCODE_USER_ID_TIMEOUT`             |
+| `userIDRetryCount`          | `OPENCODE_USER_ID_RETRY_COUNT`         |
+| `userIDCooldown`            | `OPENCODE_USER_ID_COOLDOWN`            |
 
 Keep secrets such as `otlpHeaders` out of committed configuration. Prefer an environment variable or opencode `{env:VAR}` substitution.
 

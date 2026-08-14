@@ -1,166 +1,175 @@
-import type { Context, Span, SpanContext, Tracer } from "@opentelemetry/api"
+import type { Context, Span, SpanContext, Tracer } from "@opentelemetry/api";
 
 /** Numeric priority map for log levels; higher value = higher severity. */
-export const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const
+export const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const;
 
 /** Union of supported log level names. */
-export type Level = keyof typeof LEVELS
+export type Level = keyof typeof LEVELS;
 
 /** Maximum number of entries kept in bounded correlation maps and queues. */
-export const MAX_PENDING = 500
+export const MAX_PENDING = 500;
 
 /** Temporary correlation header removed before the AI SDK calls the model provider. */
-export const LLM_TELEMETRY_REQUEST_HEADER = "x-opencode-plugin-otel-request-id"
+export const LLM_TELEMETRY_REQUEST_HEADER = "x-opencode-plugin-otel-request-id";
 
 /** Structured logger forwarded to the opencode `client.app.log` API. */
 export type PluginLogger = (
   level: Level,
   message: string,
-  extra?: Record<string, unknown>,
-) => Promise<void>
+  extra?: Record<string, unknown>
+) => Promise<void>;
 
 /** OTel attributes common to every emitted span. */
-export type CommonAttrs = Readonly<Record<string, string>>
+export type CommonAttrs = Readonly<Record<string, string>>;
 
 /** In-flight tool execution tracked between `running` and `completed`/`error` part updates. */
 export type PendingToolSpan = {
-  tool: string
-  sessionID: string
-  startMs: number
-  span: Span
-  errorType?: string
-}
+  tool: string;
+  sessionID: string;
+  startMs: number;
+  span: Span;
+  errorType?: string;
+};
 
 type PendingPermissionSpan = {
-  sessionID: string
-  callID: string
-  startMs: number
-  span: Span
-}
+  sessionID: string;
+  callID: string;
+  startMs: number;
+  span: Span;
+};
 
 /** Session role emitted by opencode: either the primary/root agent or a spawned subagent. */
-export type SessionAgentType = "primary" | "subagent"
+export type SessionAgentType = "primary" | "subagent";
 
 export type RunDetails = {
-  agentType: SessionAgentType
-  parentSessionID?: string
-  taskCallID?: string
-  taskSpanContext?: SpanContext
-}
+  agentType: SessionAgentType;
+  parentSessionID?: string;
+  taskCallID?: string;
+  taskSpanContext?: SpanContext;
+};
 
 type InteractionTotals = {
-  tokens: number
-  cost: number
-  messages: number
-}
+  tokens: number;
+  cost: number;
+  messages: number;
+};
 
 type InteractionCompletion = {
-  endTime: number
-  output?: string
-}
+  endTime: number;
+  output?: string;
+};
 
 type InteractionAlias = {
-  sessionID: string
-  ownerInteractionID: string
-}
+  sessionID: string;
+  ownerInteractionID: string;
+};
 
 type UserMessageDetails = {
-  sessionID: string
-  agent: string
-  startTime: number
-}
+  sessionID: string;
+  agent: string;
+  startTime: number;
+};
 
 type CompactionRecord = {
-  sessionID: string
-  markerMessageID: string
-  ownerInteractionID?: string
-  auto: boolean
-  overflow: boolean
-  triggerMessageID?: string
-  spanContext: SpanContext
-}
+  sessionID: string;
+  markerMessageID: string;
+  ownerInteractionID?: string;
+  auto: boolean;
+  overflow: boolean;
+  triggerMessageID?: string;
+  spanContext: SpanContext;
+};
 
 type ActiveCompactionSpan = CompactionRecord & {
-  span: Span
-}
+  span: Span;
+};
 
 type PendingContextOverflow = {
-  messageID: string
-  ownerInteractionID?: string
-  error: string
-}
+  messageID: string;
+  ownerInteractionID?: string;
+  error: string;
+};
 
 /** Live run span with its accumulated usage, agent metadata, and interaction state. */
 export type ActiveRunSpan = {
-  span: Span
-  agent: string
-  agentType: SessionAgentType
-  tokens: number
-  cost: number
-  messages: number
-  interactionIDs: Set<string>
-  interactionIO: Map<string, { input: string; output?: string }>
-}
+  span: Span;
+  agent: string;
+  agentType: SessionAgentType;
+  tokens: number;
+  cost: number;
+  messages: number;
+  interactionIDs: Set<string>;
+  interactionIO: Map<string, { input: string; output?: string }>;
+};
 
 /** Live LLM request span metadata used by the outbound header hook. */
 export type LlmRequestContext = {
-  messageID: string
-  agent: string
-  modelID: string
-  providerID: string
-  spanContext: SpanContext
-}
+  messageID: string;
+  agent: string;
+  modelID: string;
+  providerID: string;
+  spanContext: SpanContext;
+};
 
 /** Exact LLM span selected for one AI SDK generation lifecycle. */
 export type LlmTelemetryTarget = {
-  msgKey: string
-  span: Span
-}
+  msgKey: string;
+  span: Span;
+};
 
 /** Request-identity bindings that route one AI SDK lifecycle to its exact LLM span. */
 export type LlmTelemetryBindings = {
-  pendingByRequestID: Map<string, LlmTelemetryTarget>
-  byLifecycleMetadata: WeakMap<object, LlmTelemetryTarget>
-}
+  pendingByRequestID: Map<string, LlmTelemetryTarget>;
+  byLifecycleMetadata: WeakMap<object, LlmTelemetryTarget>;
+};
 
 /** Shared context threaded through every event handler. */
 export type HandlerContext = {
-  log: PluginLogger
-  commonAttrs: CommonAttrs
-  pendingToolSpans: Map<string, PendingToolSpan>
-  pendingPermissionSpans: Map<string, PendingPermissionSpan>
-  tracer: Tracer
-  tracePrefix: string
-  rootContext: () => Context
-  activeRunSpans: Map<string, ActiveRunSpan>
-  interactionSpans: Map<string, Span>
-  interactionSpanContexts: Map<string, SpanContext>
-  activeInteractions: Map<string, string>
-  interactionAliases: Map<string, InteractionAlias>
-  assistantInteractions: Map<string, string>
-  pendingInteractions: Map<string, {
-    sessionID: string
-    agent: string
-    promptText: string
-    model: string
-    startTime: number
-  }>
-  pendingAssistantInteractions: Map<string, { sessionID: string; interactionID: string }>
-  pendingSubagentRuns: Map<string, RunDetails>
-  interactionInputs: Map<string, string>
-  interactionTotals: Map<string, InteractionTotals>
-  interactionCompletions: Map<string, InteractionCompletion>
-  userMessages: Map<string, UserMessageDetails>
-  activeCompactions: Map<string, ActiveCompactionSpan>
-  compactionRecords: Map<string, CompactionRecord>
-  recentCompactions: Map<string, CompactionRecord>
-  pendingContextOverflows: Map<string, PendingContextOverflow>
-  sessionParents: Map<string, string>
-  messageSpans: Map<string, Span>
-  messageOutputs: Map<string, string>
-  llmRequestContexts: Map<string, LlmRequestContext[]>
-  llmTelemetryBindings: LlmTelemetryBindings
-  tracePropagationProviders: Set<string>
-  activeMessageSpans: Map<string, { messageID: string; span: Span; outputEndTime?: number }>
-  llmTelemetryOutputs: Map<string, true>
-}
+  log: PluginLogger;
+  commonAttrs: CommonAttrs;
+  pendingToolSpans: Map<string, PendingToolSpan>;
+  pendingPermissionSpans: Map<string, PendingPermissionSpan>;
+  tracer: Tracer;
+  tracePrefix: string;
+  rootContext: () => Context;
+  activeRunSpans: Map<string, ActiveRunSpan>;
+  interactionSpans: Map<string, Span>;
+  interactionSpanContexts: Map<string, SpanContext>;
+  activeInteractions: Map<string, string>;
+  interactionAliases: Map<string, InteractionAlias>;
+  assistantInteractions: Map<string, string>;
+  pendingInteractions: Map<
+    string,
+    {
+      sessionID: string;
+      agent: string;
+      promptText: string;
+      model: string;
+      startTime: number;
+    }
+  >;
+  pendingAssistantInteractions: Map<
+    string,
+    { sessionID: string; interactionID: string }
+  >;
+  pendingSubagentRuns: Map<string, RunDetails>;
+  interactionInputs: Map<string, string>;
+  interactionTotals: Map<string, InteractionTotals>;
+  interactionCompletions: Map<string, InteractionCompletion>;
+  userMessages: Map<string, UserMessageDetails>;
+  activeCompactions: Map<string, ActiveCompactionSpan>;
+  compactionRecords: Map<string, CompactionRecord>;
+  recentCompactions: Map<string, CompactionRecord>;
+  pendingContextOverflows: Map<string, PendingContextOverflow>;
+  sessionParents: Map<string, string>;
+  messageSpans: Map<string, Span>;
+  messageOutputs: Map<string, string>;
+  llmRequestContexts: Map<string, LlmRequestContext[]>;
+  llmTelemetryBindings: LlmTelemetryBindings;
+  tracePropagationProviders: Set<string>;
+  activeMessageSpans: Map<
+    string,
+    { messageID: string; span: Span; outputEndTime?: number }
+  >;
+  llmTelemetryOutputs: Map<string, true>;
+};

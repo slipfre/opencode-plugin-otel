@@ -1,4 +1,4 @@
-import { SpanStatusCode, trace } from "@opentelemetry/api"
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import {
   AGENT_NAME,
   INPUT_MIME_TYPE,
@@ -12,12 +12,12 @@ import {
   OUTPUT_VALUE,
   SemanticConventions,
   SESSION_ID,
-} from "@arizeai/openinference-semantic-conventions"
-import { ensureRunStarted, takeRunDetails } from "./run.ts"
-import { setBoundedMap } from "./util.ts"
-import type { HandlerContext, SessionAgentType } from "./types.ts"
+} from "@arizeai/openinference-semantic-conventions";
+import { ensureRunStarted, takeRunDetails } from "./run.ts";
+import { setBoundedMap } from "./util.ts";
+import type { HandlerContext, SessionAgentType } from "./types.ts";
 
-const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
+const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND;
 
 function createInteractionState(): Pick<
   HandlerContext,
@@ -55,23 +55,27 @@ function createInteractionState(): Pick<
     // interactionID -> latest usable completion time and output for final interaction/run attributes.
     // Entries are deleted together with their interaction span.
     interactionCompletions: new Map(),
-  }
+  };
 }
 
 function resolveInteractionOwner(
   messageID: string,
   sessionID: string | undefined,
-  ctx: HandlerContext,
+  ctx: HandlerContext
 ) {
-  const pending = ctx.pendingInteractions.get(messageID)
+  const pending = ctx.pendingInteractions.get(messageID);
   if (
-    ctx.interactionSpans.has(messageID)
-    || ctx.interactionSpanContexts.has(messageID)
-    || (pending && (!sessionID || pending.sessionID === sessionID))
-  ) return messageID
-  const alias = ctx.interactionAliases.get(messageID)
-  if (!alias || (sessionID && alias.sessionID !== sessionID)) return
-  return alias.ownerInteractionID
+    ctx.interactionSpans.has(messageID) ||
+    ctx.interactionSpanContexts.has(messageID) ||
+    (pending && (!sessionID || pending.sessionID === sessionID))
+  ) {
+    return messageID;
+  }
+  const alias = ctx.interactionAliases.get(messageID);
+  if (!alias || (sessionID && alias.sessionID !== sessionID)) {
+    return;
+  }
+  return alias.ownerInteractionID;
 }
 
 function handleInteractionStarted(
@@ -81,23 +85,27 @@ function handleInteractionStarted(
   promptText: string,
   model: string,
   startTime: number,
-  ctx: HandlerContext,
+  ctx: HandlerContext
 ) {
-  const existing = ctx.interactionSpans.get(interactionID)
-  if (!existing && ctx.interactionSpanContexts.has(interactionID)) return
-  const details = takeRunDetails(sessionID, ctx)
-  ctx.activeInteractions.set(sessionID, interactionID)
-  if (promptText) setBoundedMap(ctx.interactionInputs, interactionID, promptText)
-  const run = ensureRunStarted(sessionID, agent, startTime, ctx, details)
-  run.interactionIDs.add(interactionID)
-  const interactionIO = run.interactionIO.get(interactionID)
+  const existing = ctx.interactionSpans.get(interactionID);
+  if (!existing && ctx.interactionSpanContexts.has(interactionID)) {
+    return;
+  }
+  const details = takeRunDetails(sessionID, ctx);
+  ctx.activeInteractions.set(sessionID, interactionID);
+  if (promptText) {
+    setBoundedMap(ctx.interactionInputs, interactionID, promptText);
+  }
+  const run = ensureRunStarted(sessionID, agent, startTime, ctx, details);
+  run.interactionIDs.add(interactionID);
+  const interactionIO = run.interactionIO.get(interactionID);
   run.interactionIO.set(interactionID, {
     ...interactionIO,
     input: promptText || interactionIO?.input || "",
-  })
-  const parentSessionID = details.parentSessionID
-  const agentType: SessionAgentType = details.agentType
-  const isSubagent = agentType === "subagent"
+  });
+  const parentSessionID = details.parentSessionID;
+  const agentType: SessionAgentType = details.agentType;
+  const isSubagent = agentType === "subagent";
   if (existing) {
     existing.setAttributes({
       "opencode.interaction.id": interactionID,
@@ -115,11 +123,11 @@ function handleInteractionStarted(
           }
         : {}),
       "opencode.model": model,
-    })
-    return
+    });
+    return;
   }
 
-  const parentContext = trace.setSpan(ctx.rootContext(), run.span)
+  const parentContext = trace.setSpan(ctx.rootContext(), run.span);
   const interactionSpan = ctx.tracer.startSpan(
     `${ctx.tracePrefix}interaction`,
     {
@@ -145,11 +153,15 @@ function handleInteractionStarted(
         ...ctx.commonAttrs,
       },
     },
-    parentContext,
-  )
-  ctx.interactionSpans.set(interactionID, interactionSpan)
-  setBoundedMap(ctx.interactionSpanContexts, interactionID, interactionSpan.spanContext())
-  ctx.interactionTotals.set(interactionID, { tokens: 0, cost: 0, messages: 0 })
+    parentContext
+  );
+  ctx.interactionSpans.set(interactionID, interactionSpan);
+  setBoundedMap(
+    ctx.interactionSpanContexts,
+    interactionID,
+    interactionSpan.spanContext()
+  );
+  ctx.interactionTotals.set(interactionID, { tokens: 0, cost: 0, messages: 0 });
 }
 
 function endInteractionSpan(
@@ -158,39 +170,44 @@ function endInteractionSpan(
   status: SpanStatusCode.OK | SpanStatusCode.ERROR,
   ctx: HandlerContext,
   endTime?: number,
-  error?: string,
+  error?: string
 ) {
-  const span = ctx.interactionSpans.get(interactionID)
-  const totals = ctx.interactionTotals.get(interactionID)
-  const completion = ctx.interactionCompletions.get(interactionID)
+  const span = ctx.interactionSpans.get(interactionID);
+  const totals = ctx.interactionTotals.get(interactionID);
+  const completion = ctx.interactionCompletions.get(interactionID);
   if (span) {
     if (totals) {
       span.setAttributes({
         "interaction.total_tokens": totals.tokens,
         "interaction.total_cost_usd": totals.cost,
         "interaction.total_messages": totals.messages,
-      })
+      });
     }
     if (completion?.output !== undefined) {
       span.setAttributes({
         [OUTPUT_VALUE]: completion.output,
         [OUTPUT_MIME_TYPE]: MimeType.TEXT,
-      })
-      const run = ctx.activeRunSpans.get(sessionID)
-      const interactionIO = run?.interactionIO.get(interactionID)
+      });
+      const run = ctx.activeRunSpans.get(sessionID);
+      const interactionIO = run?.interactionIO.get(interactionID);
       if (run && interactionIO) {
-        run.interactionIO.set(interactionID, { ...interactionIO, output: completion.output })
+        run.interactionIO.set(interactionID, {
+          ...interactionIO,
+          output: completion.output,
+        });
       }
     }
-    span.setStatus(error ? { code: status, message: error } : { code: status })
-    if (error) span.setAttribute("error", error)
-    span.end(endTime)
-    ctx.interactionSpans.delete(interactionID)
+    span.setStatus(error ? { code: status, message: error } : { code: status });
+    if (error) {
+      span.setAttribute("error", error);
+    }
+    span.end(endTime);
+    ctx.interactionSpans.delete(interactionID);
   }
-  ctx.interactionTotals.delete(interactionID)
-  ctx.interactionCompletions.delete(interactionID)
+  ctx.interactionTotals.delete(interactionID);
+  ctx.interactionCompletions.delete(interactionID);
   if (ctx.activeInteractions.get(sessionID) === interactionID) {
-    ctx.activeInteractions.delete(sessionID)
+    ctx.activeInteractions.delete(sessionID);
   }
 }
 
@@ -198,26 +215,36 @@ function endSessionInteractions(
   sessionID: string,
   status: SpanStatusCode.OK | SpanStatusCode.ERROR,
   ctx: HandlerContext,
-  error?: string,
+  error?: string
 ) {
-  const run = ctx.activeRunSpans.get(sessionID)
+  const run = ctx.activeRunSpans.get(sessionID);
   if (!run) {
     for (const [key, pending] of ctx.pendingAssistantInteractions) {
-      if (pending.sessionID === sessionID && !ctx.interactionSpans.has(pending.interactionID)) {
-        ctx.pendingAssistantInteractions.delete(key)
+      if (
+        pending.sessionID === sessionID &&
+        !ctx.interactionSpans.has(pending.interactionID)
+      ) {
+        ctx.pendingAssistantInteractions.delete(key);
       }
     }
-    return
+    return;
   }
   for (const interactionID of run.interactionIDs) {
-    const hasPendingAssistant = [...ctx.pendingAssistantInteractions.values()].some(
-      pending => pending.sessionID === sessionID && pending.interactionID === interactionID,
-    )
-    if (hasPendingAssistant) continue
-    const endTime = status === SpanStatusCode.OK
-      ? ctx.interactionCompletions.get(interactionID)?.endTime
-      : undefined
-    endInteractionSpan(interactionID, sessionID, status, ctx, endTime, error)
+    const hasPendingAssistant = [
+      ...ctx.pendingAssistantInteractions.values(),
+    ].some(
+      (pending) =>
+        pending.sessionID === sessionID &&
+        pending.interactionID === interactionID
+    );
+    if (hasPendingAssistant) {
+      continue;
+    }
+    const endTime =
+      status === SpanStatusCode.OK
+        ? ctx.interactionCompletions.get(interactionID)?.endTime
+        : undefined;
+    endInteractionSpan(interactionID, sessionID, status, ctx, endTime, error);
   }
 }
 
@@ -229,23 +256,31 @@ const interactionHandlers = {
     promptText: string,
     model: string,
     startTime: number,
-    ctx: HandlerContext,
+    ctx: HandlerContext
   ) {
-    if (ctx.interactionSpans.has(interactionID) || ctx.interactionSpanContexts.has(interactionID)) return
+    if (
+      ctx.interactionSpans.has(interactionID) ||
+      ctx.interactionSpanContexts.has(interactionID)
+    ) {
+      return;
+    }
     setBoundedMap(ctx.pendingInteractions, interactionID, {
       sessionID,
       agent,
       promptText,
       model,
       startTime,
-    })
+    });
   },
 
   materialize(interactionID: string, sessionID: string, ctx: HandlerContext) {
-    const ownerInteractionID = resolveInteractionOwner(interactionID, sessionID, ctx) ?? interactionID
-    const pending = ctx.pendingInteractions.get(ownerInteractionID)
-    if (pending?.sessionID !== sessionID) return false
-    ctx.pendingInteractions.delete(ownerInteractionID)
+    const ownerInteractionID =
+      resolveInteractionOwner(interactionID, sessionID, ctx) ?? interactionID;
+    const pending = ctx.pendingInteractions.get(ownerInteractionID);
+    if (pending?.sessionID !== sessionID) {
+      return false;
+    }
+    ctx.pendingInteractions.delete(ownerInteractionID);
     handleInteractionStarted(
       ownerInteractionID,
       pending.sessionID,
@@ -253,36 +288,62 @@ const interactionHandlers = {
       pending.promptText,
       pending.model,
       pending.startTime,
-      ctx,
-    )
-    return true
+      ctx
+    );
+    return true;
   },
 
-  bindAlias(aliasID: string, sessionID: string, ownerInteractionID: string, ctx: HandlerContext) {
-    setBoundedMap(ctx.interactionAliases, aliasID, { sessionID, ownerInteractionID })
+  bindAlias(
+    aliasID: string,
+    sessionID: string,
+    ownerInteractionID: string,
+    ctx: HandlerContext
+  ) {
+    setBoundedMap(ctx.interactionAliases, aliasID, {
+      sessionID,
+      ownerInteractionID,
+    });
   },
 
   owner(messageID: string, sessionID: string | undefined, ctx: HandlerContext) {
-    return resolveInteractionOwner(messageID, sessionID, ctx)
+    return resolveInteractionOwner(messageID, sessionID, ctx);
   },
 
   latest(sessionID: string, ctx: HandlerContext) {
-    let interactionID = ctx.activeInteractions.get(sessionID)
+    let interactionID = ctx.activeInteractions.get(sessionID);
     for (const [pendingID, pending] of ctx.pendingInteractions) {
-      if (pending.sessionID !== sessionID) continue
-      if (!interactionID || pendingID > interactionID) interactionID = pendingID
+      if (pending.sessionID !== sessionID) {
+        continue;
+      }
+      if (!interactionID || pendingID > interactionID) {
+        interactionID = pendingID;
+      }
     }
-    return interactionID
+    return interactionID;
   },
 
-  bindAssistant(assistantID: string, interactionID: string | undefined, ctx: HandlerContext) {
-    if (!interactionID) return
-    setBoundedMap(ctx.assistantInteractions, assistantID, interactionID)
+  bindAssistant(
+    assistantID: string,
+    interactionID: string | undefined,
+    ctx: HandlerContext
+  ) {
+    if (!interactionID) {
+      return;
+    }
+    setBoundedMap(ctx.assistantInteractions, assistantID, interactionID);
   },
 
-  resolveAssistant(assistantID: string, fallbackInteractionID: string | undefined, ctx: HandlerContext) {
-    return ctx.assistantInteractions.get(assistantID)
-      ?? (fallbackInteractionID ? resolveInteractionOwner(fallbackInteractionID, undefined, ctx) : undefined)
+  resolveAssistant(
+    assistantID: string,
+    fallbackInteractionID: string | undefined,
+    ctx: HandlerContext
+  ) {
+    return (
+      ctx.assistantInteractions.get(assistantID) ??
+      (fallbackInteractionID
+        ? resolveInteractionOwner(fallbackInteractionID, undefined, ctx)
+        : undefined)
+    );
   },
 
   trackAssistant(
@@ -290,46 +351,73 @@ const interactionHandlers = {
     msgKey: string,
     sessionID: string,
     interactionID: string | undefined,
-    ctx: HandlerContext,
+    ctx: HandlerContext
   ) {
-    if (!interactionID) return
-    setBoundedMap(ctx.assistantInteractions, assistantID, interactionID)
-    setBoundedMap(ctx.pendingAssistantInteractions, msgKey, { sessionID, interactionID })
+    if (!interactionID) {
+      return;
+    }
+    setBoundedMap(ctx.assistantInteractions, assistantID, interactionID);
+    setBoundedMap(ctx.pendingAssistantInteractions, msgKey, {
+      sessionID,
+      interactionID,
+    });
   },
 
   completeAssistant(msgKey: string, ctx: HandlerContext) {
-    ctx.pendingAssistantInteractions.delete(msgKey)
+    ctx.pendingAssistantInteractions.delete(msgKey);
   },
 
   hasPendingAssistant(msgKey: string, ctx: HandlerContext) {
-    return ctx.pendingAssistantInteractions.has(msgKey)
+    return ctx.pendingAssistantInteractions.has(msgKey);
   },
 
   input(interactionID: string, ctx: HandlerContext) {
-    return ctx.interactionInputs.get(interactionID)
+    return ctx.interactionInputs.get(interactionID);
   },
 
-  recordUsage(interactionID: string, tokens: number, cost: number, ctx: HandlerContext) {
-    const existing = ctx.interactionTotals.get(interactionID)
-    if (!existing) return
+  recordUsage(
+    interactionID: string,
+    tokens: number,
+    cost: number,
+    ctx: HandlerContext
+  ) {
+    const existing = ctx.interactionTotals.get(interactionID);
+    if (!existing) {
+      return;
+    }
     setBoundedMap(ctx.interactionTotals, interactionID, {
       tokens: existing.tokens + tokens,
       cost: existing.cost + cost,
       messages: existing.messages + 1,
-    })
+    });
   },
 
-  recordCompletion(interactionID: string, endTime: number, output: string | undefined, ctx: HandlerContext) {
-    if (!ctx.interactionSpans.has(interactionID)) return
-    setBoundedMap(ctx.interactionCompletions, interactionID, { endTime, output })
+  recordCompletion(
+    interactionID: string,
+    endTime: number,
+    output: string | undefined,
+    ctx: HandlerContext
+  ) {
+    if (!ctx.interactionSpans.has(interactionID)) {
+      return;
+    }
+    setBoundedMap(ctx.interactionCompletions, interactionID, {
+      endTime,
+      output,
+    });
   },
 
   has(interactionID: string, ctx: HandlerContext) {
-    return ctx.interactionSpans.has(interactionID)
+    return ctx.interactionSpans.has(interactionID);
   },
 
   end: endInteractionSpan,
   endSession: endSessionInteractions,
-}
+};
 
-export { createInteractionState, endInteractionSpan, handleInteractionStarted, interactionHandlers }
+export {
+  createInteractionState,
+  endInteractionSpan,
+  handleInteractionStarted,
+  interactionHandlers,
+};

@@ -7,7 +7,7 @@ repos:
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: check-json
-        exclude: tsconfig.json  # tsconfig uses JSONC (comments allowed)
+        exclude: tsconfig.json # tsconfig uses JSONC (comments allowed)
       - id: pretty-format-json
         args: [--autofix, --indent=2]
         exclude: ^(bun\.lock|tsconfig\.json)$
@@ -23,12 +23,17 @@ repos:
 
   - repo: local
     hooks:
-      - id: eslint
-        name: ESLint
+      - id: format
+        name: oxfmt
+        language: system
+        entry: bun run format:check
+        pass_filenames: false
+
+      - id: lint
+        name: Lint
         language: system
         entry: bun run lint
         pass_filenames: false
-        types: [ts]
 
       - id: jsdoc-coverage
         name: JSDoc coverage

@@ -21,9 +21,9 @@
   "description": "OpenTelemetry tracing plugin for opencode CLI",
   "devDependencies": {
     "@types/bun": "latest",
-    "@typescript-eslint/parser": "^8.62.0",
-    "eslint": "^9.24.0",
-    "eslint-plugin-jsdoc": "^50.6.11"
+    "eslint-plugin-jsdoc": "^50.6.11",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0"
   },
   "exports": {
     ".": {
@@ -64,7 +64,10 @@
   "scripts": {
     "build": "bun build src/index.ts --outdir=./dist --target=node && tsc -p tsconfig.build.json",
     "check:jsdoc-coverage": "bun scripts/check-jsdoc-coverage.mjs",
-    "lint": "bun --bun eslint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
     "prepack": "bun run build",
     "test:e2e": "bun test e2e --timeout 60000",
     "typecheck": "tsc --noEmit"
