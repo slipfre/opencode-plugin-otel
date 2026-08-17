@@ -1,0 +1,44 @@
+src/index.ts
+  s_e987f4898244e0::t_90763b4f6a11d4 44
+  s_e987f4898244e0::t_9c122bd75f165a 161
+  s_e987f4898244e0::t_20fa8f4a1ccd74 48
+  s_e987f4898244e0::t_b9bea01d41e5c4 83-84,87,123
+e2e/run.e2e.test.ts
+  s_e987f4898244e0::t_b9bea01d41e5c4 89
+  s_e987f4898244e0::t_9c122bd75f165a 90-93
+src/opencode-version.ts
+  s_e987f4898244e0::t_90763b4f6a11d4 1-29
+package.json
+  s_e987f4898244e0::t_e5e1ce17a41826 77
+src/otel.ts
+  s_e987f4898244e0::t_b9bea01d41e5c4 9-12,24,27-28,31-34,37-38,67-68,73
+  s_e987f4898244e0::t_20fa8f4a1ccd74 23
+  s_e987f4898244e0::t_9c122bd75f165a 25,29
+tests/handlers/spans.test.ts
+  s_e987f4898244e0::t_e4062339789b64 269
+  s_e987f4898244e0::t_9c122bd75f165a 270-271,273,301,303
+  s_e987f4898244e0::t_03cd95f04747e1 302
+  s_e987f4898244e0::t_20fa8f4a1ccd74 272
+tests/otel.test.ts
+  s_e987f4898244e0::t_20fa8f4a1ccd74 36
+  s_e987f4898244e0::t_b9bea01d41e5c4 30,32,35,42-48,87-88,94-99,104-109,114-119
+  s_e987f4898244e0::t_9c122bd75f165a 37
+tests/opencode-version.test.ts
+  s_e987f4898244e0::t_90763b4f6a11d4 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "227a2d2d0a7a4a4ec86cf122c15b67d813b2b444",
+  "prompts": {},
+  "sessions": {
+    "s_e987f4898244e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00daa-8664-75e0-81fc-16981267a2b3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
