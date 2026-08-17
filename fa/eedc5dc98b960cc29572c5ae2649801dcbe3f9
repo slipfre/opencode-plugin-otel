@@ -1,0 +1,42 @@
+package.json
+  s_e987f4898244e0::t_e5e1ce17a41826 77
+src/index.ts
+  s_e987f4898244e0::t_90763b4f6a11d4 44
+  s_e987f4898244e0::t_b9bea01d41e5c4 82-83,86,121
+  s_e987f4898244e0::t_e5bcabe604bafe 129-132
+e2e/run.e2e.test.ts
+  s_e987f4898244e0::t_9c122bd75f165a 97
+  s_e987f4898244e0::t_e5bcabe604bafe 8,91-96
+  s_e987f4898244e0::t_b9bea01d41e5c4 90
+e2e/support/otlp-receiver.ts
+  s_e987f4898244e0::t_e5bcabe604bafe 11,77-81,100-103
+src/otel.ts
+  s_e987f4898244e0::t_b9bea01d41e5c4 9-12,23,26,33,62
+  s_e987f4898244e0::t_e5bcabe604bafe 27,30,67
+  s_e987f4898244e0::t_9c122bd75f165a 24,28
+src/opencode-version.ts
+  s_e987f4898244e0::t_90763b4f6a11d4 1-29
+tests/opencode-version.test.ts
+  s_e987f4898244e0::t_90763b4f6a11d4 1-47
+tests/otel.test.ts
+  s_e987f4898244e0::t_b9bea01d41e5c4 35,42-43,45-46,85,96-100
+  s_e987f4898244e0::t_9c122bd75f165a 37
+  s_e987f4898244e0::t_e5bcabe604bafe 30,32,36,44,49,56,66
+  s_e987f4898244e0::t_a2d0e8fdb876a6 61,91,105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "faeedc5dc98b960cc29572c5ae2649801dcbe3f9",
+  "prompts": {},
+  "sessions": {
+    "s_e987f4898244e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00daa-8664-75e0-81fc-16981267a2b3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
