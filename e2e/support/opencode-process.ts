@@ -1,25 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
-import { startFakeLlm, type LlmReply } from "./fake-llm.ts";
-import { startOtlpReceiver } from "./otlp-receiver.ts";
-
-type PluginOptions = {
-  enabled?: boolean;
-  tracePrefix?: string;
-  traceparent?: string;
-  tracestate?: string;
-  tracePropagationProviders?: string[];
-};
-
-type FixtureOptions = {
-  caseID: string;
-  replies: LlmReply[];
-  pluginOptions?: PluginOptions;
-  autoCompact?: boolean;
-};
 
 export type RunResult = {
   exitCode: number;
@@ -28,12 +8,26 @@ export type RunResult = {
   durationMs: number;
 };
 
+type ModelController = {
+  held(): number;
+  pending(): number;
+  release(): void;
+};
+
+type RunnerOptions = {
+  home: string;
+  config: unknown;
+  autoCompact: boolean;
+  model: ModelController;
+  diagnostics(): string;
+};
+
 const configuredEntry = process.env["OPENCODE_E2E_ENTRY"];
 export const opencodeEntry = configuredEntry
   ? path.resolve(configuredEntry)
   : path.resolve(
       import.meta.dir,
-      "../../opencode/packages/opencode/src/index.ts"
+      "../../../opencode/packages/opencode/src/index.ts"
     );
 
 if (configuredEntry && !existsSync(opencodeEntry)) {
@@ -41,32 +35,6 @@ if (configuredEntry && !existsSync(opencodeEntry)) {
 }
 
 export const e2eAvailable = existsSync(opencodeEntry);
-
-const tempRoot = process.env["OPENCODE_E2E_TMPDIR"] ?? tmpdir();
-
-function providerConfig(baseURL: string) {
-  return {
-    name: "Test",
-    id: "test",
-    env: [],
-    npm: "@ai-sdk/openai-compatible",
-    models: {
-      "test-model": {
-        id: "test-model",
-        name: "Test Model",
-        attachment: false,
-        reasoning: false,
-        temperature: false,
-        tool_call: true,
-        release_date: "2025-01-01",
-        limit: { context: 100_000, output: 10_000 },
-        cost: { input: 0, output: 0 },
-        options: {},
-      },
-    },
-    options: { apiKey: "test-key", baseURL },
-  };
-}
 
 function isolatedEnv(home: string, config: unknown, autoCompact: boolean) {
   const inherited: Record<string, string> = {};
@@ -141,54 +109,24 @@ async function waitFor(
   throw new Error(`Timed out waiting for ${description} after ${timeoutMs}ms`);
 }
 
-export async function createE2EFixture(options: FixtureOptions) {
-  if (!e2eAvailable) {
-    throw new Error(`OpenCode entry not found: ${opencodeEntry}`);
-  }
-  const home = await mkdtemp(path.join(tempRoot, "opencode-otel-e2e-"));
-  const configDir = path.join(home, ".config/opencode");
-  await Promise.all([
-    mkdir(path.join(configDir, "node_modules"), { recursive: true }),
-    mkdir(path.join(home, ".local/share"), { recursive: true }),
-    mkdir(path.join(home, ".local/state"), { recursive: true }),
-    mkdir(path.join(home, ".cache"), { recursive: true }),
-  ]);
-  await Bun.write(
-    path.join(configDir, "package-lock.json"),
-    JSON.stringify({
-      packages: { "": { dependencies: { "@opencode-ai/plugin": "0.0.0" } } },
-    })
-  );
-  const llm = startFakeLlm(options.replies);
-  const otlp = startOtlpReceiver();
-  const pluginEntry = path.resolve(import.meta.dir, "../src/index.ts");
-  const config = {
-    formatter: false,
-    lsp: false,
-    share: "disabled",
-    plugin: [
-      [
-        pathToFileURL(pluginEntry).href,
-        {
-          enabled: true,
-          endpoint: otlp.endpoint,
-          protocol: "http/json",
-          userIDEnabled: false,
-          tracePrefix: "e2e.",
-          spanAttributes: `e2e.case=${options.caseID}`,
-          resourceAttributes: "e2e.resource=opencode-plugin-otel",
-          ...options.pluginOptions,
-        },
-      ],
-    ],
-    provider: { test: providerConfig(llm.url) },
-  };
+function failureMessage(
+  error: unknown,
+  stdout: string,
+  stderr: string,
+  diagnostics: string
+) {
+  return [
+    error instanceof Error ? error.message : String(error),
+    `stdout:\n${stdout}`,
+    `stderr:\n${stderr}`,
+    diagnostics,
+  ].join("\n");
+}
+
+export function createOpenCodeRunner(options: RunnerOptions) {
   let activeServer: Bun.Subprocess | undefined;
 
   return {
-    home,
-    llm,
-    otlp,
     async run(
       prompt: string,
       extraArgs: string[] = [],
@@ -213,8 +151,8 @@ export async function createE2EFixture(options: FixtureOptions) {
           prompt,
         ],
         {
-          cwd: home,
-          env: isolatedEnv(home, config, options.autoCompact === true),
+          cwd: options.home,
+          env: isolatedEnv(options.home, options.config, options.autoCompact),
           stdin: "ignore",
           stdout: "pipe",
           stderr: "pipe",
@@ -242,21 +180,13 @@ export async function createE2EFixture(options: FixtureOptions) {
         };
       } catch (error) {
         await terminate(proc);
-        const output = await stdout;
-        const errors = await stderr;
         throw new Error(
-          [
-            error instanceof Error ? error.message : String(error),
-            `stdout:\n${output}`,
-            `stderr:\n${errors}`,
-            `llm hits:\n${JSON.stringify(
-              llm.hits.map((hit) => hit.body),
-              null,
-              2
-            )}`,
-            `otlp errors:\n${JSON.stringify(otlp.errors)}`,
-            `otlp payloads:\n${JSON.stringify(otlp.payloads, null, 2)}`,
-          ].join("\n")
+          failureMessage(
+            error,
+            await stdout,
+            await stderr,
+            options.diagnostics()
+          )
         );
       } finally {
         if (timer) {
@@ -287,8 +217,8 @@ export async function createE2EFixture(options: FixtureOptions) {
           String(port),
         ],
         {
-          cwd: home,
-          env: isolatedEnv(home, config, options.autoCompact === true),
+          cwd: options.home,
+          env: isolatedEnv(options.home, options.config, options.autoCompact),
           stdin: "ignore",
           stdout: "pipe",
           stderr: "pipe",
@@ -303,7 +233,7 @@ export async function createE2EFixture(options: FixtureOptions) {
           throw new Error("The active OpenCode run is already finished");
         }
         finalized = true;
-        llm.release();
+        options.model.release();
         await terminate(proc);
         if (activeServer === proc) {
           activeServer = undefined;
@@ -312,18 +242,7 @@ export async function createE2EFixture(options: FixtureOptions) {
         const stderr = await stderrPromise;
         if (failure) {
           throw new Error(
-            [
-              failure instanceof Error ? failure.message : String(failure),
-              `stdout:\n${stdout}`,
-              `stderr:\n${stderr}`,
-              `llm hits:\n${JSON.stringify(
-                llm.hits.map((hit) => hit.body),
-                null,
-                2
-              )}`,
-              `otlp errors:\n${JSON.stringify(otlp.errors)}`,
-              `otlp payloads:\n${JSON.stringify(otlp.payloads, null, 2)}`,
-            ].join("\n")
+            failureMessage(failure, stdout, stderr, options.diagnostics())
           );
         }
         return {
@@ -345,7 +264,7 @@ export async function createE2EFixture(options: FixtureOptions) {
             );
           }
           const url = new URL("/global/health", baseURL);
-          url.searchParams.set("directory", home);
+          url.searchParams.set("directory", options.home);
           return fetch(url, { signal: AbortSignal.timeout(1_000) })
             .then((response) => response.ok)
             .catch(() => false);
@@ -353,7 +272,7 @@ export async function createE2EFixture(options: FixtureOptions) {
 
         request = async (pathname: string, init?: RequestInit) => {
           const url = new URL(pathname, baseURL);
-          url.searchParams.set("directory", home);
+          url.searchParams.set("directory", options.home);
           let response: Response;
           try {
             response = await fetch(url, {
@@ -399,7 +318,7 @@ export async function createE2EFixture(options: FixtureOptions) {
         await waitFor(
           "the first held model request",
           15_000,
-          () => llm.held() === 1
+          () => options.model.held() === 1
         );
       } catch (error) {
         await finalize(error);
@@ -432,7 +351,7 @@ export async function createE2EFixture(options: FixtureOptions) {
               }
             );
             steered = true;
-            llm.release();
+            options.model.release();
           } catch (error) {
             await finalize(error);
           }
@@ -445,7 +364,7 @@ export async function createE2EFixture(options: FixtureOptions) {
           }
           try {
             await waitFor("the steered run to finish", timeoutMs, async () => {
-              if (llm.pending() !== 0) {
+              if (options.model.pending() !== 0) {
                 return false;
               }
               const response = await request("/session/status");
@@ -468,7 +387,7 @@ export async function createE2EFixture(options: FixtureOptions) {
           }
           compacted = true;
           try {
-            llm.release();
+            options.model.release();
             await waitFor("the initial run to finish", timeoutMs, async () => {
               const response = await request("/session/status");
               const statuses = (await response.json()) as Record<
@@ -491,7 +410,7 @@ export async function createE2EFixture(options: FixtureOptions) {
               "manual compaction to finish",
               timeoutMs,
               async () => {
-                if (llm.pending() !== 0) {
+                if (options.model.pending() !== 0) {
                   return false;
                 }
                 const statusResponse = await request("/session/status");
@@ -510,19 +429,12 @@ export async function createE2EFixture(options: FixtureOptions) {
       };
     },
     async close() {
-      if (activeServer) {
-        llm.release();
-        await terminate(activeServer);
-        activeServer = undefined;
+      if (!activeServer) {
+        return;
       }
-      llm.stop();
-      otlp.stop();
-      await rm(home, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 50,
-      });
+      options.model.release();
+      await terminate(activeServer);
+      activeServer = undefined;
     },
   };
 }
