@@ -5,6 +5,7 @@ import {
   MESSAGE_CONTENT_TEXT,
   MESSAGE_CONTENT_TYPE,
 } from "@arizeai/openinference-semantic-conventions";
+import pkg from "../package.json" with { type: "json" };
 import {
   expectOk,
   oneSpan,
@@ -86,6 +87,14 @@ suite("OpenCode run E2E", () => {
           expect(run.attributes["run.total_messages"]).toBe(1);
           expect(run.attributes["e2e.case"]).toBe("text-trace");
           expect(run.resource["service.name"]).toBe("opencode");
+          expect(run.resource["service.version"]).toBe("local");
+          expect(run.scope).toEqual({
+            name: "opencode-plugin-otel",
+            version: pkg.version,
+          });
+          expect(run.attributes["opencode.plugin.version"]).toBeUndefined();
+          expect(run.resource["opencode.plugin.version"]).toBeUndefined();
+          expect(run.resource["app.version"]).toBeUndefined();
           expect(run.resource["e2e.resource"]).toBe("opencode-plugin-otel");
           expectOk(run);
           expectOk(interaction);

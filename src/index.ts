@@ -41,6 +41,7 @@ import { handleChatHeaders } from "./handlers/chat-headers.ts";
 import { permissionHandlers } from "./handlers/permission.ts";
 import { registerAiTelemetry } from "./ai-telemetry.ts";
 import { createUserIDManager } from "./user-id.ts";
+import { resolveOpenCodeVersion } from "./opencode-version.ts";
 
 const PLUGIN_VERSION: string =
   (pkg as { version?: string }).version ?? "unknown";
@@ -78,8 +79,11 @@ export const OtelPlugin: Plugin = async (
     return {};
   }
 
+  const serviceVersion = await resolveOpenCodeVersion(client);
+
   await log("info", "starting up", {
     version: PLUGIN_VERSION,
+    serviceVersion,
     endpoint: config.endpoint,
     protocol: config.protocol,
     spanAttributeCountLimit: config.spanAttributeCountLimit,
@@ -114,7 +118,7 @@ export const OtelPlugin: Plugin = async (
   const providers = await setupOtel(
     config.endpoint,
     config.protocol,
-    PLUGIN_VERSION,
+    serviceVersion,
     config.otlpHeaders,
     otlpHeadersHelper,
     config.spanAttributeCountLimit
@@ -122,7 +126,10 @@ export const OtelPlugin: Plugin = async (
   const { tracerProvider } = providers;
   await log("info", "OTel SDK initialized");
 
-  const tracer = tracerProvider.getTracer("com.opencode");
+  const tracer = tracerProvider.getTracer(
+    "opencode-plugin-otel",
+    PLUGIN_VERSION
+  );
   const remoteContext = remoteParentContext(
     config.traceparent,
     config.tracestate

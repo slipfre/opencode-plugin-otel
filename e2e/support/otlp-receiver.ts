@@ -8,6 +8,7 @@ export type ExportedSpan = {
   endTimeUnixNano: string;
   attributes: Record<string, unknown>;
   resource: Record<string, unknown>;
+  scope: { name: string; version: string };
   status: Record<string, unknown>;
 };
 
@@ -73,6 +74,11 @@ function flattenExport(value: unknown): ExportedSpan[] {
       ...records(resourceSpan.instrumentationLibrarySpans),
     ];
     for (const group of groups) {
+      const scope = isRecord(group.scope)
+        ? group.scope
+        : isRecord(group.instrumentationLibrary)
+          ? group.instrumentationLibrary
+          : {};
       for (const span of records(group.spans)) {
         spans.push({
           name: typeof span.name === "string" ? span.name : "",
@@ -91,6 +97,10 @@ function flattenExport(value: unknown): ExportedSpan[] {
               : "",
           attributes: decodeAttributes(span.attributes),
           resource,
+          scope: {
+            name: typeof scope.name === "string" ? scope.name : "",
+            version: typeof scope.version === "string" ? scope.version : "",
+          },
           status: isRecord(span.status) ? span.status : {},
         });
       }
