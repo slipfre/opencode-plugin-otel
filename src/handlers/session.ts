@@ -69,6 +69,11 @@ function sweepSession(
       ctx.messageSpans.delete(key);
     }
   }
+  for (const key of ctx.llmSpanStartTimes.keys()) {
+    if (key.startsWith(msgPrefix)) {
+      ctx.llmSpanStartTimes.delete(key);
+    }
+  }
   for (const key of ctx.messageOutputs.keys()) {
     if (
       key.startsWith(msgPrefix) &&

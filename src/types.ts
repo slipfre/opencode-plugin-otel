@@ -163,6 +163,7 @@ export type HandlerContext = {
   pendingContextOverflows: Map<string, PendingContextOverflow>;
   sessionParents: Map<string, string>;
   messageSpans: Map<string, Span>;
+  llmSpanStartTimes: Map<string, number>;
   messageOutputs: Map<string, string>;
   llmRequestContexts: Map<string, LlmRequestContext[]>;
   llmTelemetryBindings: LlmTelemetryBindings;

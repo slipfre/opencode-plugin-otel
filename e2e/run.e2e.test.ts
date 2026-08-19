@@ -105,6 +105,38 @@ suite("OpenCode run E2E", () => {
   );
 
   test(
+    "exports time to first chunk on the llm span",
+    () =>
+      withE2EFixture(
+        {
+          caseID: "time-to-first-chunk",
+          replies: [{ type: "text", text: "first chunk from e2e" }],
+        },
+        async (fixture) => {
+          const result = await fixture.run("measure time to first chunk");
+          requireSuccess(result);
+          expect(fixture.llm.pending()).toBe(0);
+          expect(fixture.otlp.errors).toEqual([]);
+          const spans = await requireSpans(fixture, result, 3);
+
+          const llm = oneSpan(spans, "e2e.llm");
+          const timeToFirstChunk = Number(
+            llm.attributes["opencode.llm.time_to_first_chunk_ms"]
+          );
+          const durationMs =
+            Number(
+              BigInt(llm.endTimeUnixNano) - BigInt(llm.startTimeUnixNano)
+            ) / 1_000_000;
+          expect(Number.isFinite(timeToFirstChunk)).toBe(true);
+          expect(timeToFirstChunk).toBeGreaterThan(0);
+          expect(timeToFirstChunk).toBeLessThanOrEqual(durationMs);
+          expectOk(llm);
+        }
+      ),
+    60_000
+  );
+
+  test(
     "keeps steered user input in one run with distinct interactions",
     () =>
       withE2EFixture(

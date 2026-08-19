@@ -295,6 +295,7 @@ export function handleMessageUpdated(
     ctx.llmRequestContexts.delete(requestKey);
   }
   ctx.messageOutputs.delete(msgKey);
+  ctx.llmSpanStartTimes.delete(msgKey);
   if (ctx.activeMessageSpans.get(sessionID)?.messageID === assistant.id) {
     ctx.activeMessageSpans.delete(sessionID);
   }
@@ -344,6 +345,29 @@ export function handleMessagePartUpdated(
   const part = e.properties.part;
 
   if (compactionHandlers.handlePart(part, ctx)) {
+    return;
+  }
+
+  if (part.type === "step-start") {
+    const key = `${part.sessionID}:${part.messageID}`;
+    const startTime = ctx.llmSpanStartTimes.get(key);
+    const span = ctx.messageSpans.get(key);
+    if (startTime === undefined || !span) {
+      return;
+    }
+    const eventTime = (e.properties as { time?: unknown }).time;
+    const firstChunkTime =
+      typeof eventTime === "number" && Number.isFinite(eventTime)
+        ? eventTime
+        : Date.now();
+    const timeToFirstChunk = firstChunkTime - startTime;
+    if (timeToFirstChunk >= 0) {
+      span.setAttribute(
+        "opencode.llm.time_to_first_chunk_ms",
+        timeToFirstChunk
+      );
+      ctx.llmSpanStartTimes.delete(key);
+    }
     return;
   }
 
@@ -586,6 +610,7 @@ export function startMessageSpan(
     parentContext
   );
   setBoundedMap(ctx.messageSpans, msgKey, msgSpan);
+  setBoundedMap(ctx.llmSpanStartTimes, msgKey, startTime);
   const requestKey = `${sessionID}:${parentID}`;
   setBoundedMap(ctx.llmRequestContexts, requestKey, [
     ...(ctx.llmRequestContexts.get(requestKey) ?? []),

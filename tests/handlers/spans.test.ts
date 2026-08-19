@@ -223,6 +223,25 @@ function makeTextPartUpdated(
   } as unknown as EventMessagePartUpdated;
 }
 
+function makeStepStartPartUpdated(
+  time: number,
+  sessionID = "ses_1",
+  messageID = "msg_1"
+): EventMessagePartUpdated {
+  return {
+    type: "message.part.updated",
+    properties: {
+      time,
+      part: {
+        id: `part_${messageID}`,
+        type: "step-start",
+        sessionID,
+        messageID,
+      },
+    },
+  } as unknown as EventMessagePartUpdated;
+}
+
 function makeSyntheticTextPartUpdated(
   text: string,
   sessionID: string,
@@ -2488,6 +2507,27 @@ describe("message (LLM) spans", () => {
     expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT);
   });
 
+  test("records time to first chunk from the llm span start", () => {
+    const { ctx, tracer } = makeCtx();
+    startMessageSpan(
+      "ses_1",
+      "msg_1",
+      "user_1",
+      "claude",
+      "anthropic",
+      1000,
+      ctx
+    );
+
+    handleMessagePartUpdated(makeStepStartPartUpdated(1450), ctx);
+    handleMessagePartUpdated(makeStepStartPartUpdated(1900), ctx);
+
+    expect(
+      tracer.spans[0]!.attributes["opencode.llm.time_to_first_chunk_ms"]
+    ).toBe(450);
+    expect(ctx.llmSpanStartTimes.has("ses_1:msg_1")).toBe(false);
+  });
+
   test("startMessageSpan uses the assistant message agent", () => {
     const { ctx, tracer } = makeCtx();
     startMessageSpan(
@@ -2548,6 +2588,7 @@ describe("message (LLM) spans", () => {
     expect(span.ended).toBe(true);
     expect(span.endTime).toBe(2000);
     expect(ctx.messageSpans.has("ses_1:msg_1")).toBe(false);
+    expect(ctx.llmSpanStartTimes.has("ses_1:msg_1")).toBe(false);
     expect(ctx.llmRequestContexts.has("ses_1:user_1")).toBe(false);
   });
 

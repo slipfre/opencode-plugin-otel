@@ -192,6 +192,7 @@ export function makeCtx(
     pendingSubagentRuns: new Map(),
     sessionParents: new Map(),
     messageSpans: new Map(),
+    llmSpanStartTimes: new Map(),
     messageOutputs: new Map(),
     llmRequestContexts: new Map(),
     llmTelemetryBindings: {
