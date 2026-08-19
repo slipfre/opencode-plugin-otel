@@ -6,6 +6,7 @@ import type {
   EventSessionCompacted,
   EventSessionIdle,
   EventSessionError,
+  EventSessionStatus,
   EventMessageUpdated,
   EventMessagePartUpdated,
 } from "@opencode-ai/sdk";
@@ -29,6 +30,7 @@ import {
   handleSessionCompacted,
   handleSessionIdle,
   handleSessionError,
+  handleSessionStatus,
 } from "./handlers/session.ts";
 import { createInteractionState, interactionHandlers } from "./interaction.ts";
 import { compactionHandlers, createCompactionState } from "./compaction.ts";
@@ -321,6 +323,9 @@ export const OtelPlugin: Plugin = async (
       switch (event.type as string) {
         case "session.created":
           await handleSessionCreated(event as EventSessionCreated, ctx);
+          break;
+        case "session.status":
+          handleSessionStatus(event as EventSessionStatus, ctx);
           break;
         case "session.compacted":
           handleSessionCompacted(event as EventSessionCompacted, ctx);

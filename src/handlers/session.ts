@@ -4,6 +4,7 @@ import type {
   EventSessionCompacted,
   EventSessionIdle,
   EventSessionError,
+  EventSessionStatus,
 } from "@opencode-ai/sdk";
 import { errorSummary, setBoundedMap } from "../util.ts";
 import type { HandlerContext } from "../types.ts";
@@ -21,6 +22,16 @@ export function handleSessionCreated(
   if (parentID) {
     setBoundedMap(ctx.sessionParents, sessionID, parentID);
   }
+}
+
+function handleSessionStatus(e: EventSessionStatus, ctx: HandlerContext) {
+  const { sessionID, status } = e.properties;
+  if (status.type !== "retry") {
+    return;
+  }
+  ctx.activeMessageSpans
+    .get(sessionID)
+    ?.span.setAttribute("opencode.llm.retry_count", status.attempt);
 }
 
 function sweepSession(
@@ -197,4 +208,4 @@ function handleSessionCompacted(e: EventSessionCompacted, ctx: HandlerContext) {
   compactionHandlers.complete(e.properties.sessionID, ctx);
 }
 
-export { handleSessionCompacted };
+export { handleSessionCompacted, handleSessionStatus };

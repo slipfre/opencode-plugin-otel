@@ -26,6 +26,7 @@ export type ErrorReply = {
   code: string;
   message: string;
   status?: number;
+  retryAfterMs?: number;
   hold?: boolean;
 };
 
@@ -107,7 +108,13 @@ function response(reply: LlmReply) {
           code: reply.code,
         },
       },
-      { status: reply.status ?? 400 }
+      {
+        status: reply.status ?? 400,
+        headers:
+          reply.retryAfterMs === undefined
+            ? undefined
+            : { "retry-after-ms": String(reply.retryAfterMs) },
+      }
     );
   }
   const start = chunk({ delta: { role: "assistant" } });

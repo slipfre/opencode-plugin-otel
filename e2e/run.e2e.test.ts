@@ -19,6 +19,73 @@ const suite = e2eAvailable ? describe : describe.skip;
 
 suite("OpenCode run E2E", () => {
   test(
+    "records zero retries when the first llm request succeeds",
+    () =>
+      withE2EFixture(
+        {
+          caseID: "llm-no-retry",
+          replies: [{ type: "text", text: "succeeded immediately" }],
+        },
+        async (fixture) => {
+          const result = await fixture.run("succeed on the first request");
+          requireSuccess(result);
+          expect(fixture.llm.pending()).toBe(0);
+          expect(fixture.llm.mainHits()).toHaveLength(1);
+          expect(fixture.otlp.errors).toEqual([]);
+          const spans = await requireSpans(fixture, result, 3);
+
+          const llm = oneSpan(spans, "e2e.llm");
+          expect(llm.attributes["opencode.llm.retry_count"]).toBe(0);
+          expectOk(llm);
+        }
+      ),
+    60_000
+  );
+
+  test(
+    "records multiple retries before the llm request succeeds",
+    () =>
+      withE2EFixture(
+        {
+          caseID: "llm-multiple-retries",
+          replies: [
+            {
+              type: "error",
+              code: "server_error",
+              message: "temporary failure one",
+              status: 500,
+              retryAfterMs: 10,
+            },
+            {
+              type: "error",
+              code: "server_error",
+              message: "temporary failure two",
+              status: 500,
+              retryAfterMs: 10,
+            },
+            { type: "text", text: "succeeded after retries" },
+          ],
+        },
+        async (fixture) => {
+          const result = await fixture.run("retry until successful");
+          requireSuccess(result);
+          expect(fixture.llm.pending()).toBe(0);
+          expect(fixture.llm.mainHits()).toHaveLength(3);
+          expect(fixture.otlp.errors).toEqual([]);
+          const spans = await requireSpans(fixture, result, 3);
+
+          const llm = oneSpan(spans, "e2e.llm");
+          expect(llm.attributes["opencode.llm.retry_count"]).toBe(2);
+          expect(String(llm.attributes["output.value"])).toContain(
+            "succeeded after retries"
+          );
+          expectOk(llm);
+        }
+      ),
+    60_000
+  );
+
+  test(
     "exports a complete text trace with token and reasoning attributes",
     () =>
       withE2EFixture(

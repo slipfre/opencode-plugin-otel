@@ -565,6 +565,7 @@ export function startMessageSpan(
         [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.LLM,
         [SESSION_ID]: sessionID,
         "opencode.message.id": messageID,
+        "opencode.llm.retry_count": 0,
         [AGENT_NAME]: agentName,
         "agent.type": agentType,
         [LLM_SYSTEM]: providerID,

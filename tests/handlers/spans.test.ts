@@ -41,6 +41,7 @@ import {
   handleSessionCompacted,
   handleSessionIdle,
   handleSessionError,
+  handleSessionStatus,
 } from "../../src/handlers/session.ts";
 import {
   handleInteractionStarted,
@@ -58,6 +59,7 @@ import type {
   EventSessionCompacted,
   EventSessionIdle,
   EventSessionError,
+  EventSessionStatus,
   EventMessageUpdated,
   EventMessagePartUpdated,
 } from "@opencode-ai/sdk";
@@ -105,6 +107,24 @@ function makeSessionError(
     type: "session.error",
     properties: { ...(sessionID !== undefined ? { sessionID } : {}), error },
   } as unknown as EventSessionError;
+}
+
+function makeSessionRetry(
+  sessionID: string,
+  attempt: number
+): EventSessionStatus {
+  return {
+    type: "session.status",
+    properties: {
+      sessionID,
+      status: {
+        type: "retry",
+        attempt,
+        message: "rate limited",
+        next: 2000,
+      },
+    },
+  };
 }
 
 function makeAssistantMessageUpdated(overrides: {
@@ -2428,6 +2448,26 @@ describe("message (LLM) spans", () => {
       modelID: "claude-3-5-sonnet",
       providerID: "anthropic",
     });
+    expect(tracer.spans[0]!.attributes["opencode.llm.retry_count"]).toBe(0);
+  });
+
+  test("records the latest OpenCode retry count on the active llm span", () => {
+    const { ctx, tracer } = makeCtx();
+    startMessageSpan(
+      "ses_1",
+      "msg_1",
+      "user_1",
+      "claude-3-5-sonnet",
+      "anthropic",
+      1000,
+      ctx
+    );
+
+    handleSessionStatus(makeSessionRetry("ses_other", 4), ctx);
+    handleSessionStatus(makeSessionRetry("ses_1", 1), ctx);
+    handleSessionStatus(makeSessionRetry("ses_1", 2), ctx);
+
+    expect(tracer.spans[0]!.attributes["opencode.llm.retry_count"]).toBe(2);
   });
 
   test("retains core metrics after the span attribute limit is reached", async () => {
