@@ -1,0 +1,34 @@
+src/handlers/session.ts
+  s_06939513e8cc29::t_3bb3108b62f912 72,74
+src/index.ts
+  s_06939513e8cc29::t_3bb3108b62f912 153,181
+src/handlers/message.ts
+  s_06939513e8cc29::t_3bb3108b62f912 223-227,280-285,309,364,366,374,380-383,627
+tests/helpers.ts
+  s_06939513e8cc29::t_3bb3108b62f912 195
+src/types.ts
+  s_06939513e8cc29::t_3bb3108b62f912 166-169
+tests/handlers/spans.test.ts
+  s_06939513e8cc29::t_3bb3108b62f912 2528-2565,2628
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ff68223288bba309868ba1340546242665bfc5fe",
+  "prompts": {},
+  "humans": {
+    "h_076b07aabc3f4d": {
+      "author": "happy <sxh139726845@163.com>"
+    }
+  },
+  "sessions": {
+    "s_06939513e8cc29": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a018d3-400e-7ba1-b55a-0e38447c0c83",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
