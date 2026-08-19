@@ -1,10 +1,40 @@
 import type { ProviderContext } from "@opencode-ai/plugin";
 import type { Model, UserMessage } from "@opencode-ai/sdk";
+import { createTraceState } from "@opentelemetry/api";
+import { USER_ID } from "@arizeai/openinference-semantic-conventions";
 import { LLM_TELEMETRY_REQUEST_HEADER, type HandlerContext } from "../types.ts";
 import { injectTraceContext } from "../trace-context.ts";
+import { UNKNOWN_USER_ID } from "../user-id.ts";
 import { setBoundedMap } from "../util.ts";
 
-/** Injects the matching LLM span context for explicitly enabled providers. */
+const VALID_TRACESTATE_VALUE = /^[ -~]{0,255}[!-~]$/;
+
+function injectUserIDTracestate(
+  headers: Record<string, string>,
+  ctx: HandlerContext
+): void {
+  const key = ctx.userIDTracestateKey;
+  if (!key) {
+    return;
+  }
+  const userID = ctx.commonAttrs[USER_ID];
+  if (
+    !userID ||
+    userID === UNKNOWN_USER_ID ||
+    !VALID_TRACESTATE_VALUE.test(userID) ||
+    /[,=]/.test(userID)
+  ) {
+    return;
+  }
+  headers["tracestate"] = createTraceState(headers["tracestate"])
+    .set(key, userID)
+    .serialize();
+}
+
+/**
+ * Injects the matching LLM span context for explicitly enabled providers, along
+ * with the resolved `user.id` as an extra `tracestate` member.
+ */
 export function handleChatHeaders(
   input: {
     sessionID: string;
@@ -50,4 +80,5 @@ export function handleChatHeaders(
     return;
   }
   injectTraceContext(request.spanContext, output.headers);
+  injectUserIDTracestate(output.headers, ctx);
 }

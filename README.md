@@ -85,6 +85,8 @@ The plugin reads settings from `OPENCODE_*` environment variables and inline plu
 | `OPENCODE_USER_ID_TIMEOUT`             | `3000`                  | User ID request timeout in milliseconds                                                |
 | `OPENCODE_USER_ID_RETRY_COUNT`         | `2`                     | Retries after the initial user ID request fails, from `0` to `10`                      |
 | `OPENCODE_USER_ID_COOLDOWN`            | `300000`                | Cooldown after all user ID attempts fail; `0` disables the cooldown                    |
+| `OPENCODE_USER_ID_TRACESTATE_ENABLED`  | `true`                  | Adds the resolved `user.id` to the `tracestate` sent to trace propagation providers    |
+| `OPENCODE_USER_ID_TRACESTATE_KEY`      | `opencode_user_id`      | `tracestate` key carrying the user ID                                                  |
 
 ### Plugin options
 
@@ -130,6 +132,8 @@ Option keys mirror the resolved config:
 | `userIDTimeout`             | `OPENCODE_USER_ID_TIMEOUT`             |
 | `userIDRetryCount`          | `OPENCODE_USER_ID_RETRY_COUNT`         |
 | `userIDCooldown`            | `OPENCODE_USER_ID_COOLDOWN`            |
+| `userIDTracestateEnabled`   | `OPENCODE_USER_ID_TRACESTATE_ENABLED`  |
+| `userIDTracestateKey`       | `OPENCODE_USER_ID_TRACESTATE_KEY`      |
 
 Keep secrets such as `otlpHeaders` out of committed configuration. Prefer an environment variable or opencode `{env:VAR}` substitution.
 
@@ -173,6 +177,17 @@ export OPENCODE_TRACE_PROPAGATION_PROVIDERS="company-litellm,vllm"
 ```
 
 Only W3C `traceparent` and `tracestate` are injected. Propagation is disabled when the setting is unset.
+
+### User ID propagation
+
+Providers that receive W3C trace context also receive the resolved `user.id` as an extra `tracestate` member, merged into the `tracestate` produced by propagation:
+
+```text
+traceparent: 00-<trace id>-<span id>-01
+tracestate:  opencode_user_id=<user id>,<other members>
+```
+
+This follows `OPENCODE_TRACE_PROPAGATION_PROVIDERS`: no propagation means no user ID, so a `tracestate` is never sent without its `traceparent`. Nothing is sent while the user ID is still unresolved. Set `OPENCODE_USER_ID_TRACESTATE_ENABLED=false` to keep the user ID out of propagated requests, or `OPENCODE_USER_ID_TRACESTATE_KEY` to change the key. Keys must follow the W3C `tracestate` key syntax: lowercase letters, digits, `_`, `-`, `*`, and `/`.
 
 ## Local development
 

@@ -93,6 +93,8 @@ export const OtelPlugin: Plugin = async (
     userIDTimeout: config.userIDTimeout,
     userIDRetryCount: config.userIDRetryCount,
     userIDCooldown: config.userIDCooldown,
+    userIDTracestateEnabled: config.userIDTracestateEnabled,
+    userIDTracestateKey: config.userIDTracestateKey,
   });
 
   await log("debug", "config loaded", {
@@ -179,6 +181,9 @@ export const OtelPlugin: Plugin = async (
     llmRequestContexts,
     llmTelemetryBindings,
     tracePropagationProviders: config.tracePropagationProviders,
+    userIDTracestateKey: config.userIDTracestateEnabled
+      ? config.userIDTracestateKey
+      : undefined,
     activeMessageSpans,
     llmTelemetryOutputs,
   };
