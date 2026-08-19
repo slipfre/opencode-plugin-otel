@@ -167,6 +167,7 @@ export type HandlerContext = {
   llmRequestContexts: Map<string, LlmRequestContext[]>;
   llmTelemetryBindings: LlmTelemetryBindings;
   tracePropagationProviders: Set<string>;
+  userIDTracestateKey?: string;
   activeMessageSpans: Map<
     string,
     { messageID: string; span: Span; outputEndTime?: number }

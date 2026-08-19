@@ -194,4 +194,92 @@ describe("handleChatHeaders", () => {
     expect(modelOutput.headers).toEqual({});
     expect(providerOutput.headers).toEqual({});
   });
+  test("injects the resolved user ID as a tracestate member", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "u_42" });
+    ctx.userIDTracestateKey = "opencode_user_id";
+    ctx.tracePropagationProviders.add("company-litellm");
+    seedRequest(ctx);
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.traceparent).toBe(
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    );
+    expect(output.headers.tracestate).toBe("opencode_user_id=u_42");
+  });
+
+  test("merges the user ID into a propagated tracestate", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "u_42" });
+    ctx.userIDTracestateKey = "opencode_user_id";
+    ctx.tracePropagationProviders.add("company-litellm");
+    seedRequest(ctx);
+    ctx.llmRequestContexts.get("ses_1:user_1")![0]!.spanContext.traceState =
+      createTraceState("vendor=value");
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.tracestate).toBe(
+      "opencode_user_id=u_42,vendor=value"
+    );
+  });
+
+  test("honours a custom tracestate key", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "u_42" });
+    ctx.userIDTracestateKey = "acme_user";
+    ctx.tracePropagationProviders.add("company-litellm");
+    seedRequest(ctx);
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.tracestate).toBe("acme_user=u_42");
+  });
+
+  test("does not inject the user ID for a provider without trace propagation", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "u_42" });
+    ctx.userIDTracestateKey = "opencode_user_id";
+    seedRequest(ctx);
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.tracestate).toBeUndefined();
+  });
+
+  test("does not inject an unresolved user ID", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "unknown" });
+    ctx.userIDTracestateKey = "opencode_user_id";
+    ctx.tracePropagationProviders.add("company-litellm");
+    seedRequest(ctx);
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.tracestate).toBeUndefined();
+  });
+
+  test("does not inject a user ID with invalid tracestate characters", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "u=42,x" });
+    ctx.userIDTracestateKey = "opencode_user_id";
+    ctx.tracePropagationProviders.add("company-litellm");
+    seedRequest(ctx);
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.tracestate).toBeUndefined();
+  });
+
+  test("does not inject the user ID when the key is unset", () => {
+    const { ctx } = makeCtx("proj_test", { "user.id": "u_42" });
+    ctx.tracePropagationProviders.add("company-litellm");
+    seedRequest(ctx);
+    const output = { headers: {} as Record<string, string> };
+
+    handleChatHeaders(makeInput(), output, ctx);
+
+    expect(output.headers.tracestate).toBeUndefined();
+  });
 });

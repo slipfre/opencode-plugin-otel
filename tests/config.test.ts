@@ -26,6 +26,8 @@ const ENV_KEYS = [
   "OPENCODE_USER_ID_TIMEOUT",
   "OPENCODE_USER_ID_RETRY_COUNT",
   "OPENCODE_USER_ID_COOLDOWN",
+  "OPENCODE_USER_ID_TRACESTATE_ENABLED",
+  "OPENCODE_USER_ID_TRACESTATE_KEY",
   "OTEL_EXPORTER_OTLP_HEADERS",
   "OTEL_RESOURCE_ATTRIBUTES",
 ] as const;
@@ -168,6 +170,8 @@ describe("loadConfig", () => {
     expect(cfg.userIDTimeout).toBe(3000);
     expect(cfg.userIDRetryCount).toBe(2);
     expect(cfg.userIDCooldown).toBe(300000);
+    expect(cfg.userIDTracestateEnabled).toBe(true);
+    expect(cfg.userIDTracestateKey).toBe("opencode_user_id");
   });
 
   test("reads user ID environment settings", () => {
@@ -178,6 +182,8 @@ describe("loadConfig", () => {
     process.env["OPENCODE_USER_ID_TIMEOUT"] = "5000";
     process.env["OPENCODE_USER_ID_RETRY_COUNT"] = "4";
     process.env["OPENCODE_USER_ID_COOLDOWN"] = "0";
+    process.env["OPENCODE_USER_ID_TRACESTATE_ENABLED"] = "false";
+    process.env["OPENCODE_USER_ID_TRACESTATE_KEY"] = "acme_user";
     const cfg = loadConfig();
     expect(cfg.userIDEnabled).toBe(false);
     expect(cfg.userIDEndpoint).toBe("https://identity.example.com/query");
@@ -185,6 +191,8 @@ describe("loadConfig", () => {
     expect(cfg.userIDTimeout).toBe(5000);
     expect(cfg.userIDRetryCount).toBe(4);
     expect(cfg.userIDCooldown).toBe(0);
+    expect(cfg.userIDTracestateEnabled).toBe(false);
+    expect(cfg.userIDTracestateKey).toBe("acme_user");
   });
 
   test("rejects user ID retry counts above the maximum", () => {
@@ -205,6 +213,8 @@ describe("loadConfig", () => {
       userIDEnabled: false,
       userIDRetryCount: 0,
       userIDCooldown: 0,
+      userIDTracestateEnabled: false,
+      userIDTracestateKey: "option_user",
     });
     expect(cfg.enabled).toBe(true);
     expect(cfg.endpoint).toBe("http://from-option:4317");
@@ -215,6 +225,8 @@ describe("loadConfig", () => {
     expect(cfg.userIDEnabled).toBe(false);
     expect(cfg.userIDRetryCount).toBe(0);
     expect(cfg.userIDCooldown).toBe(0);
+    expect(cfg.userIDTracestateEnabled).toBe(false);
+    expect(cfg.userIDTracestateKey).toBe("option_user");
   });
 
   test("invalid options fall back to environment values", () => {

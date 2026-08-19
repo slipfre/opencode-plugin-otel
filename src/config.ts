@@ -4,6 +4,7 @@ const DEFAULT_SPAN_ATTRIBUTE_COUNT_LIMIT = 4096;
 const DEFAULT_USER_ID_TIMEOUT = 3000;
 const DEFAULT_USER_ID_RETRY_COUNT = 2;
 const DEFAULT_USER_ID_COOLDOWN = 5 * 60 * 1000;
+const DEFAULT_USER_ID_TRACESTATE_KEY = "opencode_user_id";
 const MAX_USER_ID_RETRY_COUNT = 10;
 
 /** Configuration values resolved from `OPENCODE_*` environment variables. */
@@ -16,6 +17,8 @@ export type PluginConfig = {
   userIDTimeout: number;
   userIDRetryCount: number;
   userIDCooldown: number;
+  userIDTracestateEnabled: boolean;
+  userIDTracestateKey: string;
   protocol: "grpc" | "http/protobuf" | "http/json";
   tracePrefix: string;
   otlpHeaders: string | undefined;
@@ -68,6 +71,8 @@ export type OtelPluginOptions = {
   userIDTimeout?: number;
   userIDRetryCount?: number;
   userIDCooldown?: number;
+  userIDTracestateEnabled?: boolean;
+  userIDTracestateKey?: string;
   protocol?: "grpc" | "http/protobuf" | "http/json";
   tracePrefix?: string;
   otlpHeaders?: string;
@@ -270,6 +275,14 @@ export function loadConfig(options: OtelPluginOptions = {}): PluginConfig {
         "OPENCODE_USER_ID_COOLDOWN",
         DEFAULT_USER_ID_COOLDOWN
       ),
+    userIDTracestateEnabled:
+      pickBoolean(resolvedOptions.userIDTracestateEnabled) ??
+      pickBooleanString(process.env["OPENCODE_USER_ID_TRACESTATE_ENABLED"]) ??
+      true,
+    userIDTracestateKey:
+      pickString(resolvedOptions.userIDTracestateKey) ??
+      process.env["OPENCODE_USER_ID_TRACESTATE_KEY"] ??
+      DEFAULT_USER_ID_TRACESTATE_KEY,
     protocol,
     spanAttributeCountLimit:
       pickPositiveInt(resolvedOptions.spanAttributeCountLimit) ??

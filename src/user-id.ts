@@ -39,7 +39,8 @@ type UserIDManagerConfig = Pick<
 
 type UserIDManagerContext = Pick<HandlerContext, "commonAttrs" | "log">;
 
-const UNKNOWN_USER_ID = "unknown";
+/** Placeholder written to `user.id` while no real user ID has been resolved. */
+export const UNKNOWN_USER_ID = "unknown";
 const RETRY_BASE_DELAY_MS = 250;
 
 function isResolvedUserID(userID: unknown): userID is string {
