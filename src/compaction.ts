@@ -270,6 +270,22 @@ const compactionHandlers = {
     };
   },
 
+  recordSummaryTokens(
+    sessionID: string,
+    markerMessageID: string,
+    tokens: { prompt: number; summary: number },
+    ctx: HandlerContext
+  ) {
+    const active = ctx.activeCompactions.get(sessionID);
+    if (!active || active.markerMessageID !== markerMessageID) {
+      return;
+    }
+    active.span.setAttributes({
+      "opencode.compaction.prompt_tokens": tokens.prompt,
+      "opencode.compaction.summary_tokens": tokens.summary,
+    });
+  },
+
   recoverOwner(sessionID: string, messageID: string, ctx: HandlerContext) {
     const compaction = ctx.recentCompactions.get(sessionID);
     if (!compaction?.ownerInteractionID) {

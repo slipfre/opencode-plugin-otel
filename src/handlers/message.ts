@@ -323,6 +323,14 @@ export function handleMessageUpdated(
     assistant.parentID,
     ctx
   );
+  if (assistant.summary === true && compaction) {
+    compactionHandlers.recordSummaryTokens(
+      sessionID,
+      compaction.markerMessageID,
+      { prompt: promptTokens, summary: assistant.tokens.output },
+      ctx
+    );
+  }
   if (assistant.error && compaction) {
     compactionHandlers.fail(sessionID, errorSummary(assistant.error), ctx);
   }

@@ -92,6 +92,12 @@ suite("OpenCode compaction E2E", () => {
           expect(typeof compaction.attributes["opencode.compaction.id"]).toBe(
             "string"
           );
+          expect(
+            compaction.attributes["opencode.compaction.prompt_tokens"]
+          ).toBe(5);
+          expect(
+            compaction.attributes["opencode.compaction.summary_tokens"]
+          ).toBe(3);
           expect(summary!.kind).toBe(3);
           expect(summary!.attributes["openinference.span.kind"]).toBe("LLM");
           expect(summary!.attributes["opencode.compaction.id"]).toBe(

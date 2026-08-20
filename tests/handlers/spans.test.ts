@@ -1935,6 +1935,12 @@ describe("compaction spans", () => {
       "user_compact"
     );
     expect(compaction.attributes["opencode.compaction.auto"]).toBe(true);
+    expect(
+      compaction.attributes["opencode.compaction.prompt_tokens"]
+    ).toBeUndefined();
+    expect(
+      compaction.attributes["opencode.compaction.summary_tokens"]
+    ).toBeUndefined();
 
     startMessageSpan(
       "ses_1",
@@ -1979,6 +1985,10 @@ describe("compaction spans", () => {
     );
     expect(summary.ended).toBe(true);
     expect(compaction.ended).toBe(false);
+    expect(compaction.attributes["opencode.compaction.prompt_tokens"]).toBe(24);
+    expect(compaction.attributes["opencode.compaction.summary_tokens"]).toBe(
+      10
+    );
 
     handleMessagePartUpdated(
       makeSyntheticTextPartUpdated(
