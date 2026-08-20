@@ -47,6 +47,8 @@ import { permissionHandlers } from "./permission.ts";
 
 const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND;
 const LLM_FINISH_REASON = "llm.finish_reason";
+const LLM_ESTIMATED_TIME_PER_OUTPUT_TOKEN_MS =
+  "opencode.llm.estimated_time_per_output_token_ms";
 
 function resolveToolTraceContext(
   sessionID: string,
@@ -220,6 +222,14 @@ export function handleMessageUpdated(
     assistant.tokens.cache.write;
   const completionTokens = assistant.tokens.output + assistant.tokens.reasoning;
   const totalTokens = promptTokens + completionTokens;
+  const timing = ctx.llmSpanTimings.get(msgKey);
+  const estimatedTimePerOutputToken =
+    !assistantError &&
+    timing?.firstChunkTime !== undefined &&
+    completionTokens > 1 &&
+    outputEndTime >= timing.firstChunkTime
+      ? (outputEndTime - timing.firstChunkTime) / (completionTokens - 1)
+      : undefined;
 
   if (run) {
     run.tokens += totalTokens;
@@ -272,6 +282,12 @@ export function handleMessageUpdated(
         : {}),
       cost_usd: assistant.cost,
       duration_ms: duration,
+      ...(estimatedTimePerOutputToken !== undefined
+        ? {
+            [LLM_ESTIMATED_TIME_PER_OUTPUT_TOKEN_MS]:
+              estimatedTimePerOutputToken,
+          }
+        : {}),
       ...(contextOverflow ? { "error.type": "ContextOverflowError" } : {}),
     });
     if (assistantError) {
@@ -295,7 +311,7 @@ export function handleMessageUpdated(
     ctx.llmRequestContexts.delete(requestKey);
   }
   ctx.messageOutputs.delete(msgKey);
-  ctx.llmSpanStartTimes.delete(msgKey);
+  ctx.llmSpanTimings.delete(msgKey);
   if (ctx.activeMessageSpans.get(sessionID)?.messageID === assistant.id) {
     ctx.activeMessageSpans.delete(sessionID);
   }
@@ -350,9 +366,9 @@ export function handleMessagePartUpdated(
 
   if (part.type === "step-start") {
     const key = `${part.sessionID}:${part.messageID}`;
-    const startTime = ctx.llmSpanStartTimes.get(key);
+    const timing = ctx.llmSpanTimings.get(key);
     const span = ctx.messageSpans.get(key);
-    if (startTime === undefined || !span) {
+    if (!timing || timing.firstChunkTime !== undefined || !span) {
       return;
     }
     const eventTime = (e.properties as { time?: unknown }).time;
@@ -360,13 +376,16 @@ export function handleMessagePartUpdated(
       typeof eventTime === "number" && Number.isFinite(eventTime)
         ? eventTime
         : Date.now();
-    const timeToFirstChunk = firstChunkTime - startTime;
+    const timeToFirstChunk = firstChunkTime - timing.startTime;
     if (timeToFirstChunk >= 0) {
       span.setAttribute(
         "opencode.llm.time_to_first_chunk_ms",
         timeToFirstChunk
       );
-      ctx.llmSpanStartTimes.delete(key);
+      setBoundedMap(ctx.llmSpanTimings, key, {
+        ...timing,
+        firstChunkTime,
+      });
     }
     return;
   }
@@ -611,7 +630,7 @@ export function startMessageSpan(
     parentContext
   );
   setBoundedMap(ctx.messageSpans, msgKey, msgSpan);
-  setBoundedMap(ctx.llmSpanStartTimes, msgKey, startTime);
+  setBoundedMap(ctx.llmSpanTimings, msgKey, { startTime });
   const requestKey = `${sessionID}:${parentID}`;
   setBoundedMap(ctx.llmRequestContexts, requestKey, [
     ...(ctx.llmRequestContexts.get(requestKey) ?? []),

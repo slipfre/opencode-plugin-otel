@@ -123,6 +123,11 @@ export type LlmTelemetryBindings = {
   byLifecycleMetadata: WeakMap<object, LlmTelemetryTarget>;
 };
 
+type LlmSpanTiming = {
+  startTime: number;
+  firstChunkTime?: number;
+};
+
 /** Shared context threaded through every event handler. */
 export type HandlerContext = {
   log: PluginLogger;
@@ -163,7 +168,7 @@ export type HandlerContext = {
   pendingContextOverflows: Map<string, PendingContextOverflow>;
   sessionParents: Map<string, string>;
   messageSpans: Map<string, Span>;
-  llmSpanStartTimes: Map<string, number>;
+  llmSpanTimings: Map<string, LlmSpanTiming>;
   messageOutputs: Map<string, string>;
   llmRequestContexts: Map<string, LlmRequestContext[]>;
   llmTelemetryBindings: LlmTelemetryBindings;

@@ -152,7 +152,7 @@ export const OtelPlugin: Plugin = async (
   const pendingSubagentRuns = new Map();
   const sessionParents = new Map();
   const messageSpans = new Map();
-  const llmSpanStartTimes = new Map();
+  const llmSpanTimings = new Map();
   const messageOutputs = new Map();
   const llmRequestContexts = new Map();
   const llmTelemetryBindings: HandlerContext["llmTelemetryBindings"] = {
@@ -180,7 +180,7 @@ export const OtelPlugin: Plugin = async (
     pendingSubagentRuns,
     sessionParents,
     messageSpans,
-    llmSpanStartTimes,
+    llmSpanTimings,
     messageOutputs,
     llmRequestContexts,
     llmTelemetryBindings,

@@ -2565,7 +2565,145 @@ describe("message (LLM) spans", () => {
     expect(
       tracer.spans[0]!.attributes["opencode.llm.time_to_first_chunk_ms"]
     ).toBe(450);
-    expect(ctx.llmSpanStartTimes.has("ses_1:msg_1")).toBe(false);
+    expect(ctx.llmSpanTimings.get("ses_1:msg_1")).toEqual({
+      startTime: 1000,
+      firstChunkTime: 1450,
+    });
+  });
+
+  test("estimates time per output token after the first chunk", () => {
+    const { ctx, tracer } = makeCtx();
+    startMessageSpan(
+      "ses_1",
+      "msg_1",
+      "user_1",
+      "claude",
+      "anthropic",
+      1000,
+      ctx
+    );
+
+    handleMessagePartUpdated(makeStepStartPartUpdated(1400), ctx);
+    handleMessageUpdated(
+      makeAssistantMessageUpdated({
+        tokens: {
+          input: 100,
+          output: 41,
+          reasoning: 10,
+          cache: { read: 0, write: 0 },
+        },
+        time: { created: 1000, completed: 2000 },
+      }),
+      ctx
+    );
+
+    expect(
+      tracer.spans[0]!.attributes[
+        "opencode.llm.estimated_time_per_output_token_ms"
+      ]
+    ).toBe(12);
+    expect(ctx.llmSpanTimings.has("ses_1:msg_1")).toBe(false);
+  });
+
+  test("uses the final tool handoff as the output end for token timing", () => {
+    const { ctx, tracer } = makeCtx();
+    startMessageSpan(
+      "ses_1",
+      "msg_1",
+      "user_1",
+      "claude",
+      "anthropic",
+      1000,
+      ctx
+    );
+
+    handleMessagePartUpdated(makeStepStartPartUpdated(1100), ctx);
+    handleMessagePartUpdated(
+      makeToolPartUpdated("running", { callID: "call_1", startMs: 1300 }),
+      ctx
+    );
+    handleMessagePartUpdated(
+      makeToolPartUpdated("running", { callID: "call_2", startMs: 1400 }),
+      ctx
+    );
+    handleMessageUpdated(
+      makeAssistantMessageUpdated({
+        tokens: {
+          input: 100,
+          output: 31,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        time: { created: 1000, completed: 3000 },
+      }),
+      ctx
+    );
+
+    expect(
+      tracer.spans.find((span) => span.name === "opencode.llm")!.attributes[
+        "opencode.llm.estimated_time_per_output_token_ms"
+      ]
+    ).toBe(10);
+  });
+
+  test("omits estimated token timing when it cannot be measured", () => {
+    const cases = [
+      {
+        firstChunkTime: undefined,
+        output: 10,
+        error: undefined,
+      },
+      {
+        firstChunkTime: 1400,
+        output: 1,
+        error: undefined,
+      },
+      {
+        firstChunkTime: 1400,
+        output: 10,
+        error: { name: "ProviderError" },
+      },
+    ];
+
+    for (const [index, value] of cases.entries()) {
+      const { ctx, tracer } = makeCtx();
+      const messageID = `msg_${index}`;
+      startMessageSpan(
+        "ses_1",
+        messageID,
+        "user_1",
+        "claude",
+        "anthropic",
+        1000,
+        ctx
+      );
+      if (value.firstChunkTime !== undefined) {
+        handleMessagePartUpdated(
+          makeStepStartPartUpdated(value.firstChunkTime, "ses_1", messageID),
+          ctx
+        );
+      }
+      handleMessageUpdated(
+        makeAssistantMessageUpdated({
+          id: messageID,
+          tokens: {
+            input: 100,
+            output: value.output,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+          time: { created: 1000, completed: 2000 },
+          error: value.error,
+        }),
+        ctx
+      );
+
+      expect(
+        tracer.spans[0]!.attributes[
+          "opencode.llm.estimated_time_per_output_token_ms"
+        ]
+      ).toBeUndefined();
+    }
   });
 
   test("startMessageSpan uses the assistant message agent", () => {
@@ -2628,7 +2766,7 @@ describe("message (LLM) spans", () => {
     expect(span.ended).toBe(true);
     expect(span.endTime).toBe(2000);
     expect(ctx.messageSpans.has("ses_1:msg_1")).toBe(false);
-    expect(ctx.llmSpanStartTimes.has("ses_1:msg_1")).toBe(false);
+    expect(ctx.llmSpanTimings.has("ses_1:msg_1")).toBe(false);
     expect(ctx.llmRequestContexts.has("ses_1:user_1")).toBe(false);
   });
 

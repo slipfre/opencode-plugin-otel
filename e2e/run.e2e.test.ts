@@ -177,7 +177,13 @@ suite("OpenCode run E2E", () => {
       withE2EFixture(
         {
           caseID: "time-to-first-chunk",
-          replies: [{ type: "text", text: "first chunk from e2e" }],
+          replies: [
+            {
+              type: "text",
+              text: "first chunk from e2e",
+              usage: { input: 3, output: 4 },
+            },
+          ],
         },
         async (fixture) => {
           const result = await fixture.run("measure time to first chunk");
@@ -197,6 +203,11 @@ suite("OpenCode run E2E", () => {
           expect(Number.isFinite(timeToFirstChunk)).toBe(true);
           expect(timeToFirstChunk).toBeGreaterThan(0);
           expect(timeToFirstChunk).toBeLessThanOrEqual(durationMs);
+          const timePerOutputToken = Number(
+            llm.attributes["opencode.llm.estimated_time_per_output_token_ms"]
+          );
+          expect(Number.isFinite(timePerOutputToken)).toBe(true);
+          expect(timePerOutputToken).toBeGreaterThanOrEqual(0);
           expectOk(llm);
         }
       ),
