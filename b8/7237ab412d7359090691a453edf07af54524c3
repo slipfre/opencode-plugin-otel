@@ -1,0 +1,28 @@
+src/compaction.ts
+  s_caa7652e316e6c::t_87d90dcb72d111 273-288
+src/handlers/message.ts
+  s_caa7652e316e6c::t_87d90dcb72d111 326-333
+README.md
+  s_caa7652e316e6c::t_e75440e3822769 42
+e2e/compaction.e2e.test.ts
+  s_caa7652e316e6c::t_e75440e3822769 95-100
+tests/handlers/spans.test.ts
+  s_caa7652e316e6c::t_f71d8288e5324d 1988
+  s_caa7652e316e6c::t_87d90dcb72d111 1938-1943,1989-1991
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b87237ab412d7359090691a453edf07af54524c3",
+  "prompts": {},
+  "sessions": {
+    "s_caa7652e316e6c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01dcf-d277-7223-bfd7-dabe1b9d23e0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "happy <sxh139726845@163.com>"
+    }
+  }
+}
