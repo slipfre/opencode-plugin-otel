@@ -123,9 +123,19 @@ export type LlmTelemetryBindings = {
   byLifecycleMetadata: WeakMap<object, LlmTelemetryTarget>;
 };
 
+type LlmRetryHistoryEntry = {
+  attempt: number;
+  reason: string;
+  startOffsetMs: number;
+};
+
 type LlmSpanTiming = {
-  startTime: number;
+  spanStartTime: number;
+  attemptStartTime?: number;
+  attemptStartObserved: boolean;
   firstChunkTime?: number;
+  pendingRetry?: { attempt: number; reason: string };
+  retryHistory: LlmRetryHistoryEntry[];
 };
 
 /** Shared context threaded through every event handler. */

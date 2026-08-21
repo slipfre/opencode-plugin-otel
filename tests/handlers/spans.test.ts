@@ -2461,7 +2461,7 @@ describe("message (LLM) spans", () => {
     expect(tracer.spans[0]!.attributes["opencode.llm.retry_count"]).toBe(0);
   });
 
-  test("records the latest OpenCode retry count on the active llm span", () => {
+  test("stages an OpenCode retry until the next llm request starts", () => {
     const { ctx, tracer } = makeCtx();
     startMessageSpan(
       "ses_1",
@@ -2473,11 +2473,26 @@ describe("message (LLM) spans", () => {
       ctx
     );
 
+    handleMessagePartUpdated(makeStepStartPartUpdated(1200), ctx);
+    const active = ctx.activeMessageSpans.get("ses_1")!;
+    ctx.activeMessageSpans.set("ses_1", { ...active, outputEndTime: 1300 });
+
     handleSessionStatus(makeSessionRetry("ses_other", 4), ctx);
     handleSessionStatus(makeSessionRetry("ses_1", 1), ctx);
-    handleSessionStatus(makeSessionRetry("ses_1", 2), ctx);
 
-    expect(tracer.spans[0]!.attributes["opencode.llm.retry_count"]).toBe(2);
+    expect(tracer.spans[0]!.attributes["opencode.llm.retry_count"]).toBe(0);
+    expect(tracer.spans[0]!.attributes["opencode.llm.retry_history"]).toBe(
+      "[]"
+    );
+    expect(ctx.llmSpanTimings.get("ses_1:msg_1")).toMatchObject({
+      spanStartTime: 1000,
+      attemptStartTime: undefined,
+      attemptStartObserved: false,
+      firstChunkTime: undefined,
+      pendingRetry: { attempt: 1, reason: "rate limited" },
+      retryHistory: [],
+    });
+    expect(ctx.activeMessageSpans.get("ses_1")?.outputEndTime).toBeUndefined();
   });
 
   test("retains core metrics after the span attribute limit is reached", async () => {
@@ -2557,7 +2572,7 @@ describe("message (LLM) spans", () => {
     expect(tracer.spans[0]!.attributes[OUTPUT_MIME_TYPE]).toBe(MimeType.TEXT);
   });
 
-  test("records time to first chunk from the llm span start", () => {
+  test("records time to first chunk only after the llm request succeeds", () => {
     const { ctx, tracer } = makeCtx();
     startMessageSpan(
       "ses_1",
@@ -2574,11 +2589,16 @@ describe("message (LLM) spans", () => {
 
     expect(
       tracer.spans[0]!.attributes["opencode.llm.time_to_first_chunk_ms"]
-    ).toBe(450);
-    expect(ctx.llmSpanTimings.get("ses_1:msg_1")).toEqual({
-      startTime: 1000,
+    ).toBeUndefined();
+    expect(ctx.llmSpanTimings.get("ses_1:msg_1")).toMatchObject({
+      spanStartTime: 1000,
+      attemptStartTime: 1000,
       firstChunkTime: 1450,
     });
+    handleMessageUpdated(makeAssistantMessageUpdated({}), ctx);
+    expect(
+      tracer.spans[0]!.attributes["opencode.llm.time_to_first_chunk_ms"]
+    ).toBe(450);
   });
 
   test("estimates time per output token after the first chunk", () => {
@@ -3096,6 +3116,7 @@ describe("orphaned span cleanup", () => {
 
   test("pending message spans are ended with ERROR on session.idle", () => {
     const { ctx, tracer } = makeCtx();
+    const startTime = Date.now() - 1000;
     handleSessionCreated(makeSessionCreated("ses_1"), ctx);
     startMessageSpan(
       "ses_1",
@@ -3103,7 +3124,7 @@ describe("orphaned span cleanup", () => {
       "user_1",
       "claude",
       "anthropic",
-      1000,
+      startTime,
       ctx
     );
     handleSessionIdle(makeSessionIdle("ses_1"), ctx);
@@ -3112,10 +3133,14 @@ describe("orphaned span cleanup", () => {
     const msgSpan = tracer.spans.find((s) => s.name === "opencode.llm")!;
     expect(msgSpan.ended).toBe(true);
     expect(msgSpan.status.code).toBe(SpanStatusCode.ERROR);
+    expect(msgSpan.endTime).toBeDefined();
+    expect(msgSpan.attributes.duration_ms).toBe(msgSpan.endTime! - startTime);
+    expect(msgSpan.attributes.duration_ms).toBeGreaterThanOrEqual(1000);
   });
 
   test("pending message spans are ended with ERROR on session.error", () => {
     const { ctx, tracer } = makeCtx();
+    const startTime = Date.now() - 1000;
     handleSessionCreated(makeSessionCreated("ses_1"), ctx);
     startMessageSpan(
       "ses_1",
@@ -3123,7 +3148,7 @@ describe("orphaned span cleanup", () => {
       "user_1",
       "claude",
       "anthropic",
-      1000,
+      startTime,
       ctx
     );
     handleSessionError(makeSessionError("ses_1"), ctx);
@@ -3131,5 +3156,8 @@ describe("orphaned span cleanup", () => {
     const msgSpan = tracer.spans.find((s) => s.name === "opencode.llm")!;
     expect(msgSpan.ended).toBe(true);
     expect(msgSpan.status.code).toBe(SpanStatusCode.ERROR);
+    expect(msgSpan.endTime).toBeDefined();
+    expect(msgSpan.attributes.duration_ms).toBe(msgSpan.endTime! - startTime);
+    expect(msgSpan.attributes.duration_ms).toBeGreaterThanOrEqual(1000);
   });
 });

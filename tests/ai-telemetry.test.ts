@@ -24,13 +24,19 @@ import {
   TOOL_CALL_ID,
   TOOL_JSON_SCHEMA,
 } from "@arizeai/openinference-semantic-conventions";
-import type { EventMessageUpdated } from "@opencode-ai/sdk";
+import type {
+  EventMessagePartUpdated,
+  EventMessageUpdated,
+  EventSessionStatus,
+} from "@opencode-ai/sdk";
 import { registerAiTelemetry } from "../src/ai-telemetry.ts";
 import { handleChatHeaders } from "../src/handlers/chat-headers.ts";
 import {
+  handleMessagePartUpdated,
   handleMessageUpdated,
   startMessageSpan,
 } from "../src/handlers/message.ts";
+import { handleSessionStatus } from "../src/handlers/session.ts";
 import { LLM_TELEMETRY_REQUEST_HEADER } from "../src/types.ts";
 import { makeCtx } from "./helpers.ts";
 
@@ -263,7 +269,129 @@ function assistantCompleted(): EventMessageUpdated {
   } as unknown as EventMessageUpdated;
 }
 
+function sessionRetry(attempt: number, message: string): EventSessionStatus {
+  return {
+    type: "session.status",
+    properties: {
+      sessionID: "ses_1",
+      status: { type: "retry", attempt, message, next: 0 },
+    },
+  };
+}
+
+function stepStarted(time: number): EventMessagePartUpdated {
+  return {
+    type: "message.part.updated",
+    properties: {
+      time,
+      part: {
+        id: "part_step",
+        type: "step-start",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    },
+  } as unknown as EventMessagePartUpdated;
+}
+
+function assistantCompletedAfterRetry(): EventMessageUpdated {
+  return {
+    type: "message.updated",
+    properties: {
+      info: {
+        id: "msg_1",
+        parentID: "user_1",
+        role: "assistant",
+        sessionID: "ses_1",
+        modelID: "claude",
+        providerID: "anthropic",
+        cost: 0.01,
+        tokens: {
+          input: 10,
+          output: 51,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        time: { created: 1000, completed: 4300 },
+      },
+    },
+  } as unknown as EventMessageUpdated;
+}
+
 describe("AI SDK telemetry integration", () => {
+  test("records actual retry starts and final-attempt token timing", async () => {
+    const { ctx, tracer } = makeCtx();
+    startMessageSpan(
+      "ses_1",
+      "msg_1",
+      "user_1",
+      "claude",
+      "anthropic",
+      1000,
+      ctx
+    );
+    const lifecycle = bindTelemetryLifecycle(ctx);
+    const unregister = registerAiTelemetry(ctx);
+    const originalNow = Date.now;
+
+    try {
+      Date.now = () => 1100;
+      await integration().onStart?.(startEvent(lifecycle));
+
+      handleSessionStatus(sessionRetry(1, "rate limited"), ctx);
+      Date.now = () => 2000;
+      await integration().onStart?.(startEvent(lifecycle));
+      handleMessagePartUpdated(stepStarted(2200), ctx);
+      const active = ctx.activeMessageSpans.get("ses_1")!;
+      ctx.activeMessageSpans.set("ses_1", {
+        ...active,
+        outputEndTime: 2300,
+      });
+
+      handleSessionStatus(sessionRetry(2, "timeout"), ctx);
+      Date.now = () => 3000;
+      await integration().onStart?.(startEvent(lifecycle));
+      handleMessagePartUpdated(stepStarted(3300), ctx);
+      handleMessageUpdated(assistantCompletedAfterRetry(), ctx);
+
+      const span = tracer.spans[0]!;
+      expect(span.attributes["opencode.llm.retry_count"]).toBe(2);
+      expect(
+        JSON.parse(String(span.attributes["opencode.llm.retry_history"]))
+      ).toEqual([
+        { attempt: 1, reason: "rate limited", start_offset_ms: 1000 },
+        { attempt: 2, reason: "timeout", start_offset_ms: 2000 },
+      ]);
+      expect(span.events).toEqual([
+        {
+          name: "opencode.llm.retry.started",
+          attributes: {
+            "opencode.llm.retry.attempt": 1,
+            "opencode.llm.retry.reason": "rate limited",
+            "opencode.llm.retry.start_offset_ms": 1000,
+          },
+          startTime: 2000,
+        },
+        {
+          name: "opencode.llm.retry.started",
+          attributes: {
+            "opencode.llm.retry.attempt": 2,
+            "opencode.llm.retry.reason": "timeout",
+            "opencode.llm.retry.start_offset_ms": 2000,
+          },
+          startTime: 3000,
+        },
+      ]);
+      expect(span.attributes["opencode.llm.time_to_first_chunk_ms"]).toBe(300);
+      expect(
+        span.attributes["opencode.llm.estimated_time_per_output_token_ms"]
+      ).toBe(20);
+    } finally {
+      Date.now = originalNow;
+      unregister();
+    }
+  });
+
   test("adds OpenInference input and output to the active llm span", async () => {
     const { ctx, tracer } = makeCtx();
     startMessageSpan(

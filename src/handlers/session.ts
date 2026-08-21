@@ -29,9 +29,33 @@ function handleSessionStatus(e: EventSessionStatus, ctx: HandlerContext) {
   if (status.type !== "retry") {
     return;
   }
-  ctx.activeMessageSpans
-    .get(sessionID)
-    ?.span.setAttribute("opencode.llm.retry_count", status.attempt);
+  const active = ctx.activeMessageSpans.get(sessionID);
+  if (!active) {
+    return;
+  }
+  const msgKey = `${sessionID}:${active.messageID}`;
+  const timing = ctx.llmSpanTimings.get(msgKey);
+  if (
+    !timing ||
+    timing.retryHistory.some((entry) => entry.attempt >= status.attempt) ||
+    (timing.pendingRetry && timing.pendingRetry.attempt > status.attempt)
+  ) {
+    return;
+  }
+  setBoundedMap(ctx.llmSpanTimings, msgKey, {
+    ...timing,
+    attemptStartTime: undefined,
+    attemptStartObserved: false,
+    firstChunkTime: undefined,
+    pendingRetry: {
+      attempt: status.attempt,
+      reason: status.message.slice(0, 512),
+    },
+  });
+  setBoundedMap(ctx.activeMessageSpans, sessionID, {
+    messageID: active.messageID,
+    span: active.span,
+  });
 }
 
 function sweepSession(
@@ -61,22 +85,31 @@ function sweepSession(
     }
   }
   const msgPrefix = `${sessionID}:`;
+  const messageEndTime = Date.now();
   for (const [key, span] of ctx.messageSpans) {
     if (key.startsWith(msgPrefix)) {
       const error =
         messageError && key === `${sessionID}:${messageError.messageID}`
           ? messageError.error
           : "session ended before message completed";
+      const timing = ctx.llmSpanTimings.get(key);
       span.setStatus({ code: SpanStatusCode.ERROR, message: error });
-      if (messageError && key === `${sessionID}:${messageError.messageID}`) {
-        span.setAttributes({
-          "llm.finish_reason": "error",
-          ...(messageError.errorType
-            ? { "error.type": messageError.errorType }
-            : {}),
-        });
-      }
-      span.end();
+      span.setAttributes({
+        ...(timing
+          ? {
+              duration_ms: Math.max(0, messageEndTime - timing.spanStartTime),
+            }
+          : {}),
+        ...(messageError && key === `${sessionID}:${messageError.messageID}`
+          ? {
+              "llm.finish_reason": "error",
+              ...(messageError.errorType
+                ? { "error.type": messageError.errorType }
+                : {}),
+            }
+          : {}),
+      });
+      span.end(messageEndTime);
       ctx.messageSpans.delete(key);
     }
   }

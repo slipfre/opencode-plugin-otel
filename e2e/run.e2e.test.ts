@@ -36,6 +36,8 @@ suite("OpenCode run E2E", () => {
 
           const llm = oneSpan(spans, "e2e.llm");
           expect(llm.attributes["opencode.llm.retry_count"]).toBe(0);
+          expect(llm.attributes["opencode.llm.retry_history"]).toBe("[]");
+          expect(llm.events).toEqual([]);
           expectOk(llm);
         }
       ),
@@ -76,6 +78,37 @@ suite("OpenCode run E2E", () => {
 
           const llm = oneSpan(spans, "e2e.llm");
           expect(llm.attributes["opencode.llm.retry_count"]).toBe(2);
+          const retryHistory = JSON.parse(
+            String(llm.attributes["opencode.llm.retry_history"])
+          ) as Array<{
+            attempt: number;
+            reason: string;
+            start_offset_ms: number;
+          }>;
+          expect(retryHistory).toHaveLength(2);
+          expect(retryHistory.map(({ attempt }) => attempt)).toEqual([1, 2]);
+          expect(retryHistory[0]?.reason).toContain("temporary failure one");
+          expect(retryHistory[1]?.reason).toContain("temporary failure two");
+          expect(retryHistory[0]?.start_offset_ms).toBeGreaterThanOrEqual(0);
+          expect(retryHistory[1]?.start_offset_ms).toBeGreaterThanOrEqual(
+            retryHistory[0]?.start_offset_ms ?? 0
+          );
+
+          const retryEvents = llm.events.filter(
+            ({ name }) => name === "opencode.llm.retry.started"
+          );
+          expect(retryEvents).toHaveLength(2);
+          expect(
+            retryEvents.map(
+              ({ attributes }) => attributes["opencode.llm.retry.attempt"]
+            )
+          ).toEqual([1, 2]);
+          expect(
+            retryEvents.map(
+              ({ attributes }) =>
+                attributes["opencode.llm.retry.start_offset_ms"]
+            )
+          ).toEqual(retryHistory.map(({ start_offset_ms }) => start_offset_ms));
           expect(String(llm.attributes["output.value"])).toContain(
             "succeeded after retries"
           );

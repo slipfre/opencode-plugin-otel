@@ -223,6 +223,13 @@ export function handleMessageUpdated(
   const completionTokens = assistant.tokens.output + assistant.tokens.reasoning;
   const totalTokens = promptTokens + completionTokens;
   const timing = ctx.llmSpanTimings.get(msgKey);
+  const timeToFirstChunk =
+    !assistantError &&
+    timing?.attemptStartTime !== undefined &&
+    timing.firstChunkTime !== undefined &&
+    timing.firstChunkTime >= timing.attemptStartTime
+      ? timing.firstChunkTime - timing.attemptStartTime
+      : undefined;
   const estimatedTimePerOutputToken =
     !assistantError &&
     timing?.firstChunkTime !== undefined &&
@@ -282,6 +289,9 @@ export function handleMessageUpdated(
         : {}),
       cost_usd: assistant.cost,
       duration_ms: duration,
+      ...(timeToFirstChunk !== undefined
+        ? { "opencode.llm.time_to_first_chunk_ms": timeToFirstChunk }
+        : {}),
       ...(estimatedTimePerOutputToken !== undefined
         ? {
             [LLM_ESTIMATED_TIME_PER_OUTPUT_TOKEN_MS]:
@@ -384,12 +394,7 @@ export function handleMessagePartUpdated(
       typeof eventTime === "number" && Number.isFinite(eventTime)
         ? eventTime
         : Date.now();
-    const timeToFirstChunk = firstChunkTime - timing.startTime;
-    if (timeToFirstChunk >= 0) {
-      span.setAttribute(
-        "opencode.llm.time_to_first_chunk_ms",
-        timeToFirstChunk
-      );
+    if (firstChunkTime >= timing.spanStartTime) {
       setBoundedMap(ctx.llmSpanTimings, key, {
         ...timing,
         firstChunkTime,
@@ -593,6 +598,7 @@ export function startMessageSpan(
         [SESSION_ID]: sessionID,
         "opencode.message.id": messageID,
         "opencode.llm.retry_count": 0,
+        "opencode.llm.retry_history": "[]",
         [AGENT_NAME]: agentName,
         "agent.type": agentType,
         [LLM_SYSTEM]: providerID,
@@ -638,7 +644,12 @@ export function startMessageSpan(
     parentContext
   );
   setBoundedMap(ctx.messageSpans, msgKey, msgSpan);
-  setBoundedMap(ctx.llmSpanTimings, msgKey, { startTime });
+  setBoundedMap(ctx.llmSpanTimings, msgKey, {
+    spanStartTime: startTime,
+    attemptStartTime: startTime,
+    attemptStartObserved: false,
+    retryHistory: [],
+  });
   const requestKey = `${sessionID}:${parentID}`;
   setBoundedMap(ctx.llmRequestContexts, requestKey, [
     ...(ctx.llmRequestContexts.get(requestKey) ?? []),

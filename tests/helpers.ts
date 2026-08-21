@@ -35,6 +35,11 @@ export type SpySpan = {
   attributes: Record<string, unknown>;
   kind: SpanKind;
   links: Link[];
+  events: Array<{
+    name: string;
+    attributes?: Attributes;
+    startTime?: number;
+  }>;
   parentSpan: SpySpan | undefined;
   parentSpanContext: SpanContext | undefined;
   setStatus(status: SpanStatus): SpySpan;
@@ -43,7 +48,7 @@ export type SpySpan = {
   end(endTime?: number): void;
   isRecording(): boolean;
   spanContext(): SpanContext;
-  addEvent(name: string): SpySpan;
+  addEvent(name: string, attributes?: Attributes, startTime?: number): SpySpan;
   recordException(): SpySpan;
   updateName(name: string): SpySpan;
 };
@@ -86,6 +91,7 @@ function makeSpan(
     attributes: {},
     kind,
     links,
+    events: [],
     parentSpan,
     parentSpanContext,
     setStatus(s) {
@@ -110,7 +116,12 @@ function makeSpan(
     spanContext() {
       return context;
     },
-    addEvent() {
+    addEvent(eventName, eventAttributes, eventStartTime) {
+      span.events.push({
+        name: eventName,
+        ...(eventAttributes ? { attributes: { ...eventAttributes } } : {}),
+        ...(eventStartTime !== undefined ? { startTime: eventStartTime } : {}),
+      });
       return span;
     },
     recordException() {

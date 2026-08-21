@@ -32,6 +32,10 @@ import {
 import { setBoundedMap } from "./util.ts";
 import { LLM_TELEMETRY_REQUEST_HEADER, type HandlerContext } from "./types.ts";
 
+const LLM_RETRY_COUNT = "opencode.llm.retry_count";
+const LLM_RETRY_HISTORY = "opencode.llm.retry_history";
+const LLM_RETRY_EVENT = "opencode.llm.retry.started";
+
 type Listener = {
   onStart(event: OnStartEvent): void;
   onStepStart(event: OnStepStartEvent): void;
@@ -411,6 +415,55 @@ function handleAiTelemetryStart(event: OnStartEvent, ctx: HandlerContext) {
   const current = active(event, ctx);
   if (!current) {
     return;
+  }
+  const timing = ctx.llmSpanTimings.get(current.msgKey);
+  if (timing) {
+    const startedAt = Date.now();
+    const pending = timing.pendingRetry;
+    if (pending) {
+      const entry = {
+        attempt: pending.attempt,
+        reason: pending.reason,
+        startOffsetMs: Math.max(0, startedAt - timing.spanStartTime),
+      };
+      const retryHistory = [
+        ...timing.retryHistory.filter((item) => item.attempt !== entry.attempt),
+        entry,
+      ].sort((left, right) => left.attempt - right.attempt);
+      current.span.setAttributes({
+        [LLM_RETRY_COUNT]: retryHistory.length,
+        [LLM_RETRY_HISTORY]: JSON.stringify(
+          retryHistory.map(({ attempt, reason, startOffsetMs }) => ({
+            attempt,
+            reason,
+            start_offset_ms: startOffsetMs,
+          }))
+        ),
+      });
+      current.span.addEvent(
+        LLM_RETRY_EVENT,
+        {
+          "opencode.llm.retry.attempt": entry.attempt,
+          "opencode.llm.retry.reason": entry.reason,
+          "opencode.llm.retry.start_offset_ms": entry.startOffsetMs,
+        },
+        startedAt
+      );
+      setBoundedMap(ctx.llmSpanTimings, current.msgKey, {
+        ...timing,
+        attemptStartTime: startedAt,
+        attemptStartObserved: true,
+        firstChunkTime: undefined,
+        pendingRetry: undefined,
+        retryHistory,
+      });
+    } else if (!timing.attemptStartObserved) {
+      setBoundedMap(ctx.llmSpanTimings, current.msgKey, {
+        ...timing,
+        attemptStartTime: startedAt,
+        attemptStartObserved: true,
+      });
+    }
   }
   current.span.setAttribute(
     LLM_INVOCATION_PARAMETERS,

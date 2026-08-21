@@ -7,6 +7,11 @@ export type ExportedSpan = {
   startTimeUnixNano: string;
   endTimeUnixNano: string;
   attributes: Record<string, unknown>;
+  events: Array<{
+    name: string;
+    timeUnixNano: string;
+    attributes: Record<string, unknown>;
+  }>;
   resource: Record<string, unknown>;
   scope: { name: string; version: string };
   status: Record<string, unknown>;
@@ -96,6 +101,12 @@ function flattenExport(value: unknown): ExportedSpan[] {
               ? span.endTimeUnixNano
               : "",
           attributes: decodeAttributes(span.attributes),
+          events: records(span.events).map((event) => ({
+            name: typeof event.name === "string" ? event.name : "",
+            timeUnixNano:
+              typeof event.timeUnixNano === "string" ? event.timeUnixNano : "",
+            attributes: decodeAttributes(event.attributes),
+          })),
           resource,
           scope: {
             name: typeof scope.name === "string" ? scope.name : "",

@@ -203,6 +203,16 @@ suite("OpenCode compaction E2E", () => {
         );
         expect(summary!.attributes["opencode.llm.purpose"]).toBe("compaction");
         expect(summary!.attributes["error.type"]).toBe("ContextOverflowError");
+        const summaryDurationMs = Number(summary!.attributes.duration_ms);
+        const exportedSummaryDurationMs =
+          Number(
+            BigInt(summary!.endTimeUnixNano) -
+              BigInt(summary!.startTimeUnixNano)
+          ) / 1_000_000;
+        expect(summaryDurationMs).toBeGreaterThan(0);
+        expect(
+          Math.abs(summaryDurationMs - exportedSummaryDurationMs)
+        ).toBeLessThanOrEqual(1);
         const summaryStatusMessage = String(summary!.status["message"] ?? "");
         expect(summaryStatusMessage).not.toContain(
           "session ended before message completed"
